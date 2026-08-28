@@ -112,10 +112,18 @@ data "aws_iam_policy_document" "monolith_deploy" {
   }
 
   # O acesso ao cluster em si e concedido por EKS access entry na camada
-  # efemera; aqui basta poder descrever o cluster para montar o kubeconfig.
+  # efemera; aqui basta poder montar o kubeconfig.
+  #
+  # ListClusters entra junto porque o `aws eks update-kubeconfig` o chama antes
+  # de DescribeCluster, e sem ele o deploy morre com "no identity-based policy
+  # allows the eks:ListClusters action" -- mesmo tendo DescribeCluster em "*".
+  # Ambas sao somente-leitura e nao dao acesso a API do Kubernetes.
   statement {
-    effect    = "Allow"
-    actions   = ["eks:DescribeCluster"]
+    effect = "Allow"
+    actions = [
+      "eks:DescribeCluster",
+      "eks:ListClusters",
+    ]
     resources = ["*"]
   }
 }
