@@ -263,35 +263,45 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "api" {
 # A ponte entre o ALB do Terraform e os pods: o AWS Load Balancer Controller
 # reconcilia este CR mantendo o target group populado com os IPs dos pods do
 # Service, sem criar balanceador nenhum.
-resource "kubectl_manifest" "target_group_binding" {
-  yaml_body = yamlencode({
-    apiVersion = "elbv2.k8s.aws/v1beta1"
-    kind       = "TargetGroupBinding"
+# Aplicado por kubectl, e nao por um recurso de provider Kubernetes.
+#
+# Tanto `kubernetes_manifest` quanto `kubectl_manifest` precisam de conexao com
+# o cluster em TEMPO DE PLANO -- o primeiro para validar o schema por dry-run,
+# o segundo porque configura o provider de forma ansiosa. Aqui o cluster e o
+# CRD TargetGroupBinding nascem neste mesmo apply, entao no plano nao ha
+# endpoint algum: ambos falham. Nao e ordenacao, e fase; depends_on nao alcanca.
+#
+# Um local-exec nao configura conexao nenhuma no plano e roda depois que o
+# cluster existe. O manifesto vai por variavel de ambiente para nao depender de
+# indentacao de heredoc, e o kubeconfig e temporario para nao mexer no
+# ~/.kube/config de quem aplica da propria maquina.
+#
+# Nao ha provisioner de destroy: o CR vive DENTRO do cluster e morre com ele. O
+# passo "Detach target group binding first" do tear-down existe por outro
+# motivo -- dar ao controller a chance de desregistrar os targets antes que o
+# ALB seja removido.
+resource "null_resource" "target_group_binding" {
+  triggers = {
+    manifest = local.target_group_binding_manifest
+    cluster  = aws_eks_cluster.main.name
+  }
 
-    metadata = {
-      name      = "api"
-      namespace = kubernetes_namespace.workshop.metadata[0].name
+  provisioner "local-exec" {
+    environment = {
+      MANIFEST = local.target_group_binding_manifest
+      CLUSTER  = aws_eks_cluster.main.name
+      REGION   = var.region
     }
 
-    spec = {
-      targetGroupARN = aws_lb_target_group.api.arn
-      targetType     = "ip"
+    command = <<-EOT
+      set -euo pipefail
+      KUBECONFIG="$(mktemp)"
+      export KUBECONFIG
+      trap 'rm -f "$KUBECONFIG"' EXIT
+      aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" >/dev/null
+      printf '%s' "$MANIFEST" | kubectl apply -f -
+    EOT
+  }
 
-      serviceRef = {
-        name = kubernetes_service.api.metadata[0].name
-        port = 8080
-      }
-
-      networking = {
-        ingress = [{
-          from = [{
-            securityGroup = { groupID = aws_security_group.alb.id }
-          }]
-          ports = [{ protocol = "TCP", port = 8080 }]
-        }]
-      }
-    }
-  })
-
-  depends_on = [helm_release.lb_controller]
+  depends_on = [helm_release.lb_controller, kubernetes_service.api]
 }
