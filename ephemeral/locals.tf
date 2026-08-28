@@ -19,6 +19,11 @@ locals {
 
   api_deployment_name = "api"
 
+  # SG que o EKS anexa as instancias do node group. Nao e o SG do control
+  # plane: e o mesmo aplicado aos nos e, por consequencia, aos pods, ja que o
+  # VPC CNI usa IPs secundarios da ENI do no.
+  node_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+
   # Placeholder do Deployment. Sobe instantaneamente, nao serve nada e nao
   # confunde ninguem com um 200 falso -- ao contrario de um nginx.
   placeholder_image = "registry.k8s.io/pause:3.9"
