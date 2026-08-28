@@ -41,3 +41,30 @@ variable "ses_sender_email" {
   type        = string
   default     = ""
 }
+
+# IDs numericos usados pelo formato "immutable" do claim `sub` do GitHub OIDC.
+#
+# O GitHub passou a emitir o sub como
+#   repo:<org>@<org_id>/<repo>@<repo_id>:<contexto>
+# em vez do classico `repo:<org>/<repo>:<contexto>`. Os IDs sobrevivem a
+# renomeacoes de org e de repositorio, que era o ponto da mudanca.
+#
+# Para reobte-los:
+#   gh api orgs/<org> --jq .id
+#   gh api repos/<org>/<repo> --jq .id
+variable "github_org_id" {
+  description = "ID numerico da organizacao GitHub."
+  type        = number
+  default     = 304170884
+}
+
+variable "github_repository_ids" {
+  description = "ID numerico de cada repositorio, na mesma chave de local.repositories."
+  type        = map(number)
+  default = {
+    infrastructure = 1349770613
+    monolith       = 1349770766
+    serverless     = 1349770930
+    frontend       = 1349770282
+  }
+}

@@ -44,7 +44,14 @@ data "aws_iam_policy_document" "github_assume_role" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
+      # Duas grafias do mesmo par de condicoes. O GitHub emite hoje o formato
+      # "immutable", com os IDs numericos embutidos; o classico fica como
+      # fallback caso a conta volte a emitir no formato antigo. Uma lista em
+      # StringLike e um OU, entao aceitar as duas nao afrouxa nada -- org,
+      # repositorio e contexto continuam presos em ambas.
       values = [
+        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:ref:refs/heads/main",
+        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:environment:production",
         "repo:${var.github_org}/${each.value}:ref:refs/heads/main",
         "repo:${var.github_org}/${each.value}:environment:production",
       ]
