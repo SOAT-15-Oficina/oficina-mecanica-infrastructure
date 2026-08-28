@@ -263,8 +263,8 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "api" {
 # A ponte entre o ALB do Terraform e os pods: o AWS Load Balancer Controller
 # reconcilia este CR mantendo o target group populado com os IPs dos pods do
 # Service, sem criar balanceador nenhum.
-resource "kubernetes_manifest" "target_group_binding" {
-  manifest = {
+resource "kubectl_manifest" "target_group_binding" {
+  yaml_body = yamlencode({
     apiVersion = "elbv2.k8s.aws/v1beta1"
     kind       = "TargetGroupBinding"
 
@@ -291,7 +291,7 @@ resource "kubernetes_manifest" "target_group_binding" {
         }]
       }
     }
-  }
+  })
 
   depends_on = [helm_release.lb_controller]
 }
