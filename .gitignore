@@ -1,0 +1,20 @@
+# Terraform
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/.terraform.tfstate.lock.info
+*.tfplan
+*.tfvars
+!example.tfvars
+
+# Excecao: o state do bootstrap e local por design -- ele cria o bucket que os
+# outros usam. Nao contem segredo, so um bucket e uma tabela de lock.
+!bootstrap/terraform.tfstate
+
+# IDEs
+.vscode
+.idea
+
+# Ambiente
+.env
+kubeconfig

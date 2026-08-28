@@ -1,0 +1,88 @@
+name: Tear down
+
+# Destroi a camada efemera. A persistente (state, roles, ECR, identidades SES,
+# S3, CloudFront, API Gateway, Secrets Manager) NAO e tocada -- custa ~US$1/mes
+# e evita reverificar e-mails no SES e trocar a URL publica a cada ciclo.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite "destroy" para confirmar'
+        required: true
+        type: string
+
+concurrency:
+  group: environment-lifecycle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.5"
+  AWS_REGION: sa-east-1
+
+jobs:
+  destroy:
+    if: inputs.confirm == 'destroy'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Como o ALB e recurso Terraform (e nao criado por um Ingress), o destroy
+      # remove tudo na ordem certa e nao deixa ENI orfa travando a delecao da
+      # subnet. Este passo so garante que o TargetGroupBinding saia antes do
+      # controller, para o controller conseguir desregistrar os targets.
+      - name: Detach target group binding first
+        continue-on-error: true
+        run: |
+          CLUSTER="$(aws ssm get-parameter --name /oficina-mecanica/prod/eks_cluster_name \
+            --query Parameter.Value --output text 2>/dev/null || true)"
+          NS="$(aws ssm get-parameter --name /oficina-mecanica/prod/kube_namespace \
+            --query Parameter.Value --output text 2>/dev/null || true)"
+          if [ -n "$CLUSTER" ] && [ -n "$NS" ]; then
+            aws eks update-kubeconfig --name "$CLUSTER"
+            kubectl -n "$NS" delete targetgroupbinding --all --ignore-not-found --timeout=120s
+          fi
+
+      - name: Destroy ephemeral layer
+        run: |
+          terraform -chdir=ephemeral init -input=false
+          terraform -chdir=ephemeral destroy -input=false -auto-approve -lock-timeout=30m
+
+      # Um destroy que "terminou" mas deixou ENI, ALB ou EIP para tras continua
+      # gerando custo em silencio.
+      - name: Verify nothing was left behind
+        run: |
+          LEFTOVERS=0
+
+          COUNT="$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Project,Values=oficina-mecanica" "Name=tag:Layer,Values=ephemeral" \
+            --query 'length(Vpcs)' --output text)"
+          [ "$COUNT" = "0" ] || { echo "VPCs restantes: $COUNT"; LEFTOVERS=1; }
+
+          COUNT="$(aws ec2 describe-addresses \
+            --filters "Name=tag:Project,Values=oficina-mecanica" \
+            --query 'length(Addresses)' --output text)"
+          [ "$COUNT" = "0" ] || { echo "Elastic IPs restantes: $COUNT"; LEFTOVERS=1; }
+
+          COUNT="$(aws rds describe-db-instances \
+            --query "length(DBInstances[?DBInstanceIdentifier=='oficina-mecanica-prod'])" --output text)"
+          [ "$COUNT" = "0" ] || { echo "Instancias RDS restantes: $COUNT"; LEFTOVERS=1; }
+
+          if [ "$LEFTOVERS" = "1" ]; then
+            echo "Recursos orfaos continuam gerando custo -- limpe manualmente."
+            exit 1
+          fi
+          echo "Nada restante."

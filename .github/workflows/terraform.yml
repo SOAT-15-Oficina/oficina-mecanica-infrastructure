@@ -1,0 +1,94 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/adr/**", "local/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/adr/**", "local/**"]
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.5"
+  AWS_REGION: sa-east-1
+
+jobs:
+  # fmt, validate e tflint rodam nas tres camadas, em paralelo.
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [bootstrap, persistent, ephemeral]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint GitHub Actions workflows
+        run: docker run --rm -v "${GITHUB_WORKSPACE}:/repo" -w /repo rhysd/actionlint:latest
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Format check
+        run: terraform -chdir=${{ matrix.layer }} fmt -check -recursive
+
+      - name: Validate
+        run: |
+          terraform -chdir=${{ matrix.layer }} init -backend=false -input=false
+          terraform -chdir=${{ matrix.layer }} validate
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.52.0
+
+      - name: TFLint
+        run: |
+          tflint --init
+          tflint --chdir=${{ matrix.layer }} --format compact
+
+  # O plan comenta no PR para o diff de infraestrutura ser revisado ANTES de
+  # existir. Nao aplica nada.
+  # Nao existe job de `plan` em PR. Todo passo dele precisaria de credencial AWS
+  # (o `init` usa backend S3 e o `plan` fala com a API), e a unica role deste
+  # repositorio tem AdministratorAccess numa conta que hospeda outro projeto em
+  # producao. Liberar `pull_request` na trust policy dela significaria que
+  # qualquer PR executa workflow com admin na conta -- decisao do time foi nao
+  # liberar.
+  #
+  # O que sobra em PR e o job `validate` (fmt, validate e tflint nas tres
+  # camadas), que roda sem nenhuma credencial. Para ter plan em PR de novo, o
+  # caminho e uma segunda role so-leitura, confiando em
+  # `repo:<org>/<repo>:pull_request`, e nao afrouxar a role de admin.
+
+  # Apply so em merge para main, e apenas na camada PERSISTENTE. A camada
+  # efemera e aplicada pelo workflow bring-up, sob demanda.
+  apply-persistent:
+    if: github.event_name == 'push'
+    needs: [validate]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Apply
+        run: |
+          terraform -chdir=persistent init -input=false
+          terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=5m

@@ -1,0 +1,127 @@
+# Ambiente local COMPLETO: painel + Lambda de autenticacao + monolito + Postgres
+# + MailHog, atras de um nginx que replica o roteamento do CloudFront.
+#
+# Assume os quatro repositorios clonados lado a lado:
+#
+#   study/
+#     oficina-mecanica-infrastructure/   <- voce esta aqui
+#     oficina-mecanica-monolith/
+#     oficina-mecanica-serverless/
+#     oficina-mecanica-frontend/
+#
+#   docker compose -f local/docker-compose.local.yml up --build
+#   http://localhost:8080
+#
+# Cada repositorio tambem tem seu proprio docker-compose para trabalhar
+# isolado -- este aqui e para exercitar o fluxo ponta a ponta.
+name: oficina-mecanica-local
+
+services:
+  # Faz o papel do CloudFront: painel na raiz, /api/* para a API, e remove o
+  # prefixo /api antes de repassar.
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../../oficina-mecanica-frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+      - lambda-shim
+
+  # Faz o papel do API Gateway para /auth/*: converte HTTP em evento Lambda.
+  lambda-shim:
+    image: node:22-alpine
+    command: ["node", "/app/server.mjs"]
+    working_dir: /app
+    volumes:
+      - ./lambda-shim:/app:ro
+    environment:
+      RIE_URL: http://lambda:8080/2015-03-31/functions/function/invocations
+    depends_on:
+      - lambda
+
+  lambda:
+    build:
+      context: ../../oficina-mecanica-serverless
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: techchallenge-db
+      DATABASE_USER: techchallenge
+      DATABASE_PASSWORD: password
+      # Sem DATABASE_SECRET_ID/JWT_SECRET_ID o config le do ambiente e nao
+      # chama o Secrets Manager. Nao ha AWS aqui.
+      JWT_SECRET_KEY: local-dev-secret
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: ../../oficina-mecanica-monolith
+      dockerfile: Dockerfile
+    environment:
+      SERVER_ENVIRONMENT: development
+      SERVER_PORT: "8080"
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: techchallenge-db
+      DATABASE_USER: techchallenge
+      DATABASE_PASSWORD: password
+      DATABASE_MAX_CONNECTIONS: "5"
+      # Precisa ser identico ao da Lambda: ela assina, o monolito valida.
+      JWT_SECRET_KEY: local-dev-secret
+      # Mesma URL publica que o browser usa, para os links de aprovacao no
+      # e-mail apontarem para um lugar que existe.
+      APP_BASE_URL: http://localhost:8080/api
+      EMAIL_PROVIDER: mailhog
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: "1025"
+      EMAIL_FROM: oficina@workshop.local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailhog:
+        condition: service_started
+
+  # As migrations sao propriedade do monolito e rodam como passo separado --
+  # nunca no boot da API (com replicas>=2 isso seria corrida de DDL). Em
+  # producao isto e um Job do Kubernetes.
+  migrate:
+    build:
+      context: ../../oficina-mecanica-monolith
+      dockerfile: Dockerfile
+    command: ["migrate"]
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: techchallenge-db
+      DATABASE_USER: techchallenge
+      DATABASE_PASSWORD: password
+      JWT_SECRET_KEY: local-dev-secret
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: techchallenge
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: techchallenge-db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techchallenge -d techchallenge-db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Substitui o SES localmente. UI em http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"

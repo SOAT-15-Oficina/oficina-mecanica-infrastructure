@@ -1,0 +1,119 @@
+name: Bring up
+
+# Sobe a camada efemera e dispara o deploy dos tres repositorios de aplicacao.
+# Manual: o ambiente existe para apresentacoes, nao permanentemente.
+#
+# Duracao tipica: ~25-30 min do zero ate demonstravel (EKS ~15min e RDS ~10min
+# em paralelo, mais os tres deploys, migration e seed).
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Rodar o seed de dados de demonstracao apos as migrations"
+        type: boolean
+        default: true
+
+concurrency:
+  group: environment-lifecycle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.5"
+  AWS_REGION: sa-east-1
+  SSM_PREFIX: /oficina-mecanica/prod
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      cluster: ${{ steps.outputs.outputs.cluster }}
+      namespace: ${{ steps.outputs.outputs.namespace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # A camada persistente precisa existir antes: a efemera le o contrato de
+      # SSM que ela publica.
+      - name: Apply persistent layer
+        run: |
+          terraform -chdir=persistent init -input=false
+          terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=10m
+
+      - name: Apply ephemeral layer
+        run: |
+          terraform -chdir=ephemeral init -input=false
+          terraform -chdir=ephemeral apply -input=false -auto-approve -lock-timeout=30m
+
+      - name: Export outputs
+        id: outputs
+        run: |
+          {
+            echo "cluster=$(terraform -chdir=ephemeral output -raw eks_cluster_name)"
+            echo "namespace=$(aws ssm get-parameter --name "${SSM_PREFIX}/kube_namespace" --query Parameter.Value --output text)"
+          } >> "$GITHUB_OUTPUT"
+
+  # Cada repositorio de aplicacao e dono do proprio deploy. O bring-up apenas
+  # os aciona, na ordem em que dependem uns dos outros.
+  deploy-applications:
+    needs: [apply]
+    runs-on: ubuntu-latest
+    steps:
+      # O monolito primeiro: ele roda as migrations que criam a tabela `users`,
+      # sem a qual a Lambda de autenticacao nao funciona.
+      - name: Trigger monolith deploy
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run ci.yml --repo SOAT-15-Oficina/oficina-mecanica-monolith --ref main
+          sleep 30
+          gh run list --repo SOAT-15-Oficina/oficina-mecanica-monolith \
+            --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' > /tmp/run_id
+          gh run watch "$(cat /tmp/run_id)" --repo SOAT-15-Oficina/oficina-mecanica-monolith --exit-status
+
+      - name: Trigger serverless and frontend deploys
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+        run: |
+          for repo in oficina-mecanica-serverless oficina-mecanica-frontend; do
+            gh workflow run ci.yml --repo "SOAT-15-Oficina/${repo}" --ref main
+          done
+
+  verify:
+    needs: [deploy-applications]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check public endpoint
+        run: |
+          URL="$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" \
+            --query Parameter.Value --output text)"
+          echo "Ambiente em: $URL"
+
+          for _ in $(seq 1 40); do
+            if curl -fsS "${URL}/api/ping" | grep -Fx Pong; then
+              curl -fsS "${URL}/index.html" >/dev/null
+              echo "OK: painel e API respondendo"
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "Ambiente nao respondeu a tempo"
+          exit 1
