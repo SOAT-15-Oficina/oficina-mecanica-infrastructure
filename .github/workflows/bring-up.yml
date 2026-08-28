@@ -105,7 +105,7 @@ jobs:
       - name: Deploy applications
         run: |
           dispatch() {
-            repo="$ORG/$1"
+            repo="$ORG/oficina-mecanica-$1"
             before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             gh workflow run ci.yml --repo "$repo" --ref main >&2
             for _ in $(seq 1 30); do
@@ -119,7 +119,7 @@ jobs:
           }
 
           await() {
-            repo="$ORG/$1"; id="$2"
+            repo="$ORG/oficina-mecanica-$1"; id="$2"
             echo "aguardando https://github.com/$repo/actions/runs/$id"
             for _ in $(seq 1 120); do
               state="$(gh api "repos/$repo/actions/runs/$id" --jq '.status + " " + (.conclusion // "-")')"
@@ -133,9 +133,16 @@ jobs:
             return 1
           }
 
+          # Sempre por atribuicao, nunca `await x "$(dispatch x)"`: sob set -e
+          # a falha de uma substituicao de comando usada como ARGUMENTO nao
+          # aborta o script -- seguiria com o corpo do erro no lugar do id.
+          # Numa atribuicao, o status da substituicao vira o status do comando
+          # e o set -e pega.
+
           # O monolito primeiro e sozinho: ele roda as migrations que criam a
           # tabela `users`, sem a qual a Lambda de autenticacao nao funciona.
-          await monolith "$(dispatch monolith)"
+          monolith_id="$(dispatch monolith)"
+          await monolith "$monolith_id"
 
           serverless_id="$(dispatch serverless)"
           frontend_id="$(dispatch frontend)"
