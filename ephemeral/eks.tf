@@ -123,20 +123,13 @@ resource "aws_eks_access_policy_association" "monolith_ci" {
   }
 }
 
-# O pipeline do repositorio de infraestrutura precisa de admin para aplicar os
-# manifestos.
-resource "aws_eks_access_entry" "infrastructure_ci" {
-  cluster_name  = aws_eks_cluster.main.name
-  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-gha-infrastructure"
-  type          = "STANDARD"
-}
-
-resource "aws_eks_access_policy_association" "infrastructure_ci" {
-  cluster_name  = aws_eks_cluster.main.name
-  principal_arn = aws_eks_access_entry.infrastructure_ci.principal_arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-
-  access_scope {
-    type = "cluster"
-  }
-}
+# NAO declare uma access entry para a role gha-infrastructure aqui.
+#
+# `bootstrap_cluster_creator_admin_permissions = true` faz a AWS criar
+# automaticamente uma entry de cluster-admin para o principal que CRIA o
+# cluster -- que e justamente essa role, ja que o bring-up roda por ela.
+# Declara-la de novo retorna 409 ResourceInUseException.
+#
+# Efeito colateral aceito: se alguem criar o cluster da propria maquina, o
+# criador passa a ser aquele principal e a role do CI fica sem acesso. O unico
+# passo do tear-down que usa kubectl tem continue-on-error justamente por isso.

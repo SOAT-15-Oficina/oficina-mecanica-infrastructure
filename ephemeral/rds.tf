@@ -10,9 +10,13 @@ resource "aws_db_subnet_group" "main" {
 # Faz parte da camada efemera por decisao do time: o ambiente inteiro sobe e
 # desce a cada apresentacao, e migrations + seed rodam a cada bring-up.
 resource "aws_db_instance" "main" {
-  identifier     = local.name
-  engine         = "postgres"
-  engine_version = "17.4"
+  identifier = local.name
+  engine     = "postgres"
+  # Prefixo de familia, nao versao exata: `17.4` nao existe em sa-east-1 (a
+  # familia comeca em 17.5) e minors sao descontinuadas com o tempo. Com
+  # auto_minor_version_upgrade ligado, o provider aceita o prefixo e a AWS
+  # resolve para a minor corrente.
+  engine_version = "17"
   instance_class = var.database_instance_class
 
   allocated_storage     = 20

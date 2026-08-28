@@ -293,6 +293,9 @@ resource "null_resource" "target_group_binding" {
       REGION   = var.region
     }
 
+    # /bin/sh no Ubuntu e dash, que nao tem `set -o pipefail`.
+    interpreter = ["/bin/bash", "-c"]
+
     command = <<-EOT
       set -euo pipefail
       KUBECONFIG="$(mktemp)"
