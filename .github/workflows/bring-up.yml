@@ -45,9 +45,30 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Mesmo motivo do job apply-persistent em terraform.yml: prod.tfvars e
+      # gitignored e nao existe no runner, e o default de ses_verified_emails e
+      # `[]` -- aplicar sem estes valores esvaziaria o for_each e DESTRUIRIA as
+      # identidades SES ja verificadas.
+      - name: Check required inputs
+        env:
+          EMAILS: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
+          SENDER: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
+        run: |
+          missing=""
+          [ -n "$EMAILS" ] || missing="$missing TF_VAR_SES_VERIFIED_EMAILS"
+          [ -n "$SENDER" ] || missing="$missing TF_VAR_SES_SENDER_EMAIL"
+          if [ -n "$missing" ]; then
+            echo "Variables ausentes no repositorio:$missing"
+            echo "Aplicar sem elas destruiria as identidades SES verificadas."
+            exit 1
+          fi
+
       # A camada persistente precisa existir antes: a efemera le o contrato de
       # SSM que ela publica.
       - name: Apply persistent layer
+        env:
+          TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
+          TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
         run: |
           terraform -chdir=persistent init -input=false
           terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=10m
