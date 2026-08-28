@@ -51,9 +51,3 @@ variable "kube_namespace" {
   type        = string
   default     = "workshop"
 }
-
-variable "github_org" {
-  description = "Organizacao GitHub dona dos quatro repositorios."
-  type        = string
-  default     = "SOAT-15-Oficina"
-}

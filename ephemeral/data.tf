@@ -9,10 +9,6 @@ data "aws_ssm_parameter" "api_gateway_execution_arn" {
   name = "${local.ssm_prefix}/api_gateway_execution_arn"
 }
 
-data "aws_ssm_parameter" "ecr_repository_url" {
-  name = "${local.ssm_prefix}/ecr_repository_url"
-}
-
 data "aws_ssm_parameter" "jwt_secret_arn" {
   name = "${local.ssm_prefix}/jwt_secret_arn"
 }
