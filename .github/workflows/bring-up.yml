@@ -91,26 +91,56 @@ jobs:
   deploy-applications:
     needs: [apply]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+      ORG: SOAT-15-Oficina
     steps:
-      # O monolito primeiro: ele roda as migrations que criam a tabela `users`,
-      # sem a qual a Lambda de autenticacao nao funciona.
-      - name: Trigger monolith deploy
-        env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+      # Nao use `gh run watch`: ele pede annotations, que exigem a permissao
+      # `checks:read` -- impossivel de conceder num PAT fine-grained. O polling
+      # abaixo usa so a API de runs, coberta por `actions: read`.
+      #
+      # Tambem nao pegue "o run mais recente" depois de um sleep: se houver
+      # outro run de ci.yml na fila, observa-se o errado. Aqui o run e casado
+      # pelo timestamp de criacao, posterior ao dispatch.
+      - name: Deploy applications
         run: |
-          gh workflow run ci.yml --repo SOAT-15-Oficina/oficina-mecanica-monolith --ref main
-          sleep 30
-          gh run list --repo SOAT-15-Oficina/oficina-mecanica-monolith \
-            --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' > /tmp/run_id
-          gh run watch "$(cat /tmp/run_id)" --repo SOAT-15-Oficina/oficina-mecanica-monolith --exit-status
+          dispatch() {
+            repo="$ORG/$1"
+            before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run ci.yml --repo "$repo" --ref main >&2
+            for _ in $(seq 1 30); do
+              id="$(gh api "repos/$repo/actions/runs?event=workflow_dispatch&branch=main&per_page=10" \
+                --jq "[.workflow_runs[] | select(.created_at >= \"$before\")] | sort_by(.created_at) | last | .id // empty")"
+              if [ -n "$id" ]; then echo "$id"; return 0; fi
+              sleep 5
+            done
+            echo "nao encontrei o run disparado em $repo" >&2
+            return 1
+          }
 
-      - name: Trigger serverless and frontend deploys
-        env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
-        run: |
-          for repo in oficina-mecanica-serverless oficina-mecanica-frontend; do
-            gh workflow run ci.yml --repo "SOAT-15-Oficina/${repo}" --ref main
-          done
+          await() {
+            repo="$ORG/$1"; id="$2"
+            echo "aguardando https://github.com/$repo/actions/runs/$id"
+            for _ in $(seq 1 120); do
+              state="$(gh api "repos/$repo/actions/runs/$id" --jq '.status + " " + (.conclusion // "-")')"
+              case "$state" in
+                "completed success") echo "$1: ok"; return 0 ;;
+                completed*)          echo "$1: falhou ($state)" >&2; return 1 ;;
+              esac
+              sleep 15
+            done
+            echo "$1: timeout" >&2
+            return 1
+          }
+
+          # O monolito primeiro e sozinho: ele roda as migrations que criam a
+          # tabela `users`, sem a qual a Lambda de autenticacao nao funciona.
+          await monolith "$(dispatch monolith)"
+
+          serverless_id="$(dispatch serverless)"
+          frontend_id="$(dispatch frontend)"
+          await serverless "$serverless_id"
+          await frontend "$frontend_id"
 
   verify:
     needs: [deploy-applications]
