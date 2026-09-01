@@ -68,3 +68,52 @@ variable "github_repository_ids" {
     frontend       = 1349770282
   }
 }
+
+# --- Diferencas entre ambientes ----------------------------------------------
+#
+# Os tres blocos abaixo aceitam `null` e caem num default derivado de
+# `var.environment` (ver locals.tf). Assim o CI nao precisa passar TF_VAR_* extra
+# para cada ambiente: basta `environment`, e a convencao main/prod e hml/homolog
+# se aplica sozinha. Continuam sobrescritiveis para um ambiente que fuja dela.
+
+variable "deploy_branch" {
+  description = <<-EOT
+    Branch cujos workflows podem assumir as roles deste ambiente. Entra na
+    condicao `sub` da trust policy do OIDC.
+
+    Default: `main` em prod, `hml` nos demais.
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "github_environment" {
+  description = <<-EOT
+    GitHub Environment usado pelos jobs de deploy deste ambiente. Entra na
+    condicao `sub` da trust policy junto com a branch, e e onde vive o secret
+    AWS_DEPLOY_ROLE_ARN correspondente.
+
+    Default: `production` em prod, o proprio nome do ambiente nos demais.
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "manage_ses_identities" {
+  description = <<-EOT
+    Se esta stack CRIA as identidades verificadas do SES.
+
+    Identidade SES pertence a CONTA, nao ao ambiente: e endereçada pelo proprio
+    e-mail. Com dois ambientes na mesma conta, o segundo apply a criar o mesmo
+    endereco morre com AlreadyExists.
+
+    Por isso apenas UM ambiente as possui -- producao -- e os outros apenas
+    enviam por elas (a policy IRSA da API usa `resources = ["*"]`, entao nao
+    depende de posse). O que cada ambiente tem de proprio e o configuration set,
+    que ja e nomeado por `local.name`.
+
+    Default: `true` em prod, `false` nos demais.
+  EOT
+  type        = bool
+  default     = null
+}

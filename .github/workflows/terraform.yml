@@ -1,11 +1,20 @@
 name: Terraform
 
+# Dois ambientes, uma regra: a BRANCH escolhe o destino.
+#
+#   hml  -> homologacao (/oficina-mecanica/homolog, GitHub Environment homolog)
+#   main -> producao    (/oficina-mecanica/prod,    GitHub Environment production)
+#
+# Nao ha nada aqui que mande em qual ambiente aplicar: o par branch->ambiente e
+# a unica fonte, e a trust policy do OIDC (persistent/oidc.tf) o repete do lado
+# da AWS. Um push em `hml` nao consegue credencial de producao nem se o job
+# pedir o ambiente errado.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, hml]
     paths-ignore: ["**/*.md", "docs/adr/**", "local/**"]
   push:
-    branches: [main]
+    branches: [main, hml]
     paths-ignore: ["**/*.md", "docs/adr/**", "local/**"]
 
 concurrency:
@@ -75,9 +84,27 @@ jobs:
     if: github.event_name == 'push'
     needs: [validate]
     runs-on: ubuntu-latest
-    environment: production
+    # `hml` e a unica branch que nao e producao entre os gatilhos de push acima,
+    # entao o fallback e seguro.
+    environment: ${{ github.ref_name == 'hml' && 'homolog' || 'production' }}
     steps:
       - uses: actions/checkout@v4
+
+      # Traduz a branch para o nome do ambiente usado pelo Terraform, pelo SSM e
+      # pelos arquivos de backend. Um `case` explicito em vez de expressao: se
+      # alguem adicionar uma branch ao gatilho e esquecer deste mapa, o job para
+      # aqui em vez de aplicar no ambiente errado.
+      - name: Resolve target environment
+        run: |
+          case "$GITHUB_REF_NAME" in
+            main) ENVIRONMENT=prod ;;
+            hml)  ENVIRONMENT=homolog ;;
+            *)
+              echo "branch $GITHUB_REF_NAME nao mapeia para nenhum ambiente"
+              exit 1
+              ;;
+          esac
+          echo "ENVIRONMENT=$ENVIRONMENT" >> "$GITHUB_ENV"
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -88,8 +115,8 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # As entradas da camada persistente vivem em prod.tfvars, que e gitignored
-      # e nao existe no runner. Sem elas o Terraform usa os DEFAULTS -- e o
+      # As entradas da camada persistente vivem em <ambiente>.tfvars, que e
+      # gitignored e nao existe no runner. Sem elas o Terraform usa os DEFAULTS -- e o
       # default de ses_verified_emails e `[]`, o que esvazia o for_each e
       # DESTROI as identidades SES ja verificadas. Por isso os valores chegam
       # por TF_VAR_* e o job aborta antes do apply se faltarem.
@@ -107,10 +134,15 @@ jobs:
             exit 1
           fi
 
+      # O -backend-config escolhe o STATE do ambiente e o TF_VAR_environment
+      # escolhe o que sera escrito nele. Os dois vem do mesmo $ENVIRONMENT: e o
+      # que impede aplicar a configuracao de um ambiente sobre o state do outro.
       - name: Apply
         env:
           TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
           TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
         run: |
-          terraform -chdir=persistent init -input=false
+          export TF_VAR_environment="$ENVIRONMENT"
+          terraform -chdir=persistent init -input=false \
+            -backend-config="${ENVIRONMENT}.s3.tfbackend"
           terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=5m

@@ -1,0 +1,4 @@
+# Producao. A key NAO tem prefixo de ambiente: e o caminho que este state ja
+# ocupa desde que a stack existe. Mover exigiria `init -migrate-state` numa
+# camada que guarda a senha do RDS e a chave JWT -- risco sem retorno.
+key = "persistent/terraform.tfstate"
