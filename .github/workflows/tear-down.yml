@@ -1,18 +1,26 @@
 name: Tear down
 
-# Destroi a camada efemera. A persistente (state, roles, ECR, identidades SES,
-# S3, CloudFront, API Gateway, Secrets Manager) NAO e tocada -- custa ~US$1/mes
-# e evita reverificar e-mails no SES e trocar a URL publica a cada ciclo.
+# Destroi a camada efemera de UM ambiente. A persistente (state, roles, ECR,
+# identidades SES, S3, CloudFront, API Gateway, Secrets Manager) NAO e tocada --
+# custa ~US$1/mes por ambiente e evita reverificar e-mails no SES e trocar a URL
+# publica a cada ciclo.
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: "Ambiente a destruir"
+        type: choice
+        options: [homolog, prod]
+        default: homolog
       confirm:
         description: 'Digite "destroy" para confirmar'
         required: true
         type: string
 
+# Mesmo grupo do bring-up, por ambiente: subir e derrubar o MESMO ambiente nunca
+# correm juntos, mas mexer em homologacao nao segura producao na fila.
 concurrency:
-  group: environment-lifecycle
+  group: environment-lifecycle-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -22,14 +30,32 @@ permissions:
 env:
   TF_VERSION: "1.9.5"
   AWS_REGION: sa-east-1
+  ENVIRONMENT: ${{ inputs.environment }}
+  SSM_PREFIX: /oficina-mecanica/${{ inputs.environment }}
 
 jobs:
   destroy:
     if: inputs.confirm == 'destroy'
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
     steps:
       - uses: actions/checkout@v4
+
+      # Mesma amarra do bring-up: o codigo que destroi um ambiente e o codigo
+      # promovido para ele. Destruir producao com o Terraform de `hml` poderia
+      # deixar para tras recursos que so existem no codigo de `main`.
+      - name: Check ref matches environment
+        run: |
+          case "$ENVIRONMENT" in
+            prod)    expected=main ;;
+            homolog) expected=hml ;;
+            *)       echo "ambiente desconhecido: $ENVIRONMENT"; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Ambiente '$ENVIRONMENT' se destroi a partir da branch '$expected',"
+            echo "mas este run partiu de '$GITHUB_REF_NAME'."
+            exit 1
+          fi
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -47,42 +73,55 @@ jobs:
       - name: Detach target group binding first
         continue-on-error: true
         run: |
-          CLUSTER="$(aws ssm get-parameter --name /oficina-mecanica/prod/eks_cluster_name \
+          CLUSTER="$(aws ssm get-parameter --name "${SSM_PREFIX}/eks_cluster_name" \
             --query Parameter.Value --output text 2>/dev/null || true)"
-          NS="$(aws ssm get-parameter --name /oficina-mecanica/prod/kube_namespace \
+          NS="$(aws ssm get-parameter --name "${SSM_PREFIX}/kube_namespace" \
             --query Parameter.Value --output text 2>/dev/null || true)"
           if [ -n "$CLUSTER" ] && [ -n "$NS" ]; then
             aws eks update-kubeconfig --name "$CLUSTER"
             kubectl -n "$NS" delete targetgroupbinding --all --ignore-not-found --timeout=120s
           fi
 
+      # O -backend-config escolhe o state do ambiente e o TF_VAR_environment o
+      # que o codigo descreve. Divergir os dois aqui e pior que num apply: o
+      # Terraform destruiria o que estivesse no state selecionado.
       - name: Destroy ephemeral layer
         run: |
-          terraform -chdir=ephemeral init -input=false
+          export TF_VAR_environment="$ENVIRONMENT"
+          terraform -chdir=ephemeral init -input=false \
+            -backend-config="${ENVIRONMENT}.s3.tfbackend"
           terraform -chdir=ephemeral destroy -input=false -auto-approve -lock-timeout=30m
 
       # Um destroy que "terminou" mas deixou ENI, ALB ou EIP para tras continua
       # gerando custo em silencio.
+      #
+      # Todo filtro e por Environment, nao so por Project: com dois ambientes na
+      # mesma conta, contar "VPCs do projeto" acusaria as do ambiente que
+      # continua de pe e falharia todo tear-down.
       - name: Verify nothing was left behind
         run: |
           LEFTOVERS=0
 
           COUNT="$(aws ec2 describe-vpcs \
-            --filters "Name=tag:Project,Values=oficina-mecanica" "Name=tag:Layer,Values=ephemeral" \
+            --filters "Name=tag:Project,Values=oficina-mecanica" \
+                      "Name=tag:Environment,Values=${ENVIRONMENT}" \
+                      "Name=tag:Layer,Values=ephemeral" \
             --query 'length(Vpcs)' --output text)"
           [ "$COUNT" = "0" ] || { echo "VPCs restantes: $COUNT"; LEFTOVERS=1; }
 
           COUNT="$(aws ec2 describe-addresses \
             --filters "Name=tag:Project,Values=oficina-mecanica" \
+                      "Name=tag:Environment,Values=${ENVIRONMENT}" \
             --query 'length(Addresses)' --output text)"
           [ "$COUNT" = "0" ] || { echo "Elastic IPs restantes: $COUNT"; LEFTOVERS=1; }
 
+          # O identificador do RDS e `<project>-<environment>` (ephemeral/rds.tf).
           COUNT="$(aws rds describe-db-instances \
-            --query "length(DBInstances[?DBInstanceIdentifier=='oficina-mecanica-prod'])" --output text)"
+            --query "length(DBInstances[?DBInstanceIdentifier=='oficina-mecanica-${ENVIRONMENT}'])" --output text)"
           [ "$COUNT" = "0" ] || { echo "Instancias RDS restantes: $COUNT"; LEFTOVERS=1; }
 
           if [ "$LEFTOVERS" = "1" ]; then
             echo "Recursos orfaos continuam gerando custo -- limpe manualmente."
             exit 1
           fi
-          echo "Nada restante."
+          echo "Nada restante no ambiente '$ENVIRONMENT'."

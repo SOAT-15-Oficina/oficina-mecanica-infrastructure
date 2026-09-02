@@ -104,24 +104,106 @@ conveniência:
   ficaria apontando para o vazio. Só as **rotas, integrações e o VPC Link** são
   efêmeros; com o ambiente desligado o API existe e responde 404.
 
+## Dois ambientes
+
+**Homologação** e **produção** são a mesma stack aplicada duas vezes, na mesma
+conta AWS. O que as separa é o valor de `var.environment`, que prefixa cada nome
+de recurso (`oficina-mecanica-homolog-*` × `oficina-mecanica-prod-*`), cada
+parâmetro do SSM e cada role.
+
+| | homologação | produção |
+|---|---|---|
+| Branch | `hml` | `main` |
+| GitHub Environment | `homolog` | `production` |
+| Prefixo no SSM | `/oficina-mecanica/homolog` | `/oficina-mecanica/prod` |
+| State (mesmo bucket) | `homolog/<camada>/terraform.tfstate` | `<camada>/terraform.tfstate` |
+| Roles OIDC | `oficina-mecanica-homolog-gha-*` | `oficina-mecanica-prod-gha-*` |
+| Identidades SES | usa as da conta | **cria** as da conta |
+
+**A branch é a única fonte da verdade.** Nenhum workflow de aplicação tem input
+de ambiente: `ci.yml` deriva tudo de `github.ref_name`. O `bring-up` e o
+`tear-down` têm input — são manuais e não têm branch implícita — mas abortam se
+ele não bater com o ref de onde foram disparados. E a trust policy do OIDC repete
+a mesma regra do lado da AWS: a role de homologação só aceita
+`ref:refs/heads/hml` e `environment:homolog`. Um push em `hml` não obtém
+credencial de produção nem trocando o ARN do secret.
+
+### Por que a mesma conta
+
+Isolamento por nomeação e IAM, não por fronteira de conta. Duas contas dariam
+blast radius e billing separados, mas exigiriam um segundo bootstrap, um segundo
+provider OIDC e **reverificar o e-mail no SES da conta nova** — que é justamente
+o passo manual que a camada persistente existe para evitar.
+
+O preço dessa escolha é uma colisão real, tratada explicitamente: identidade SES
+pertence à conta e é endereçada pelo próprio e-mail, então o segundo ambiente a
+criar `fulano@example.com` morreria com `AlreadyExists`. Só produção as possui
+(`manage_ses_identities`); homologação envia por elas, o que funciona porque a
+policy IRSA da API usa `resources = ["*"]`. Cada ambiente tem o próprio
+*configuration set*, então as métricas de envio não se misturam.
+
+### O state de produção não mudou de lugar
+
+A `key` do backend saiu do bloco `backend "s3"` e passou a vir de
+`-backend-config=<ambiente>.s3.tfbackend`. Produção manteve o caminho legado
+(`persistent/terraform.tfstate`); só os ambientes criados depois ganham prefixo.
+Mover o state de produção exigiria `init -migrate-state` numa camada que guarda a
+senha do RDS e a chave JWT — risco sem retorno.
+
+Rodando à mão, **o backend e o var-file precisam apontar para o mesmo
+ambiente**:
+
+```bash
+terraform -chdir=persistent init -backend-config=homolog.s3.tfbackend
+terraform -chdir=persistent apply -var-file=../homolog.tfvars
+```
+
+Um `init` sem `-backend-config` pergunta a `key`; com `-input=false` (como no CI)
+ele falha. Os dois comportamentos são melhores que herdar um state por engano.
+
 ## Ciclo de vida
 
 ```bash
-# uma vez, com credencial humana
+# uma vez por conta, com credencial humana
 cd bootstrap && terraform init && terraform apply
+```
+
+Um ambiente **novo** também precisa de um empurrão humano, uma vez. É um
+ovo-e-galinha: o `terraform.yml` de `hml` autentica com a role
+`oficina-mecanica-homolog-gha-infrastructure`, que só passa a existir depois do
+primeiro `apply` da camada persistente de homologação. A role de produção não
+serve — a trust policy dela não aceita `environment:homolog`, que é exatamente o
+ponto.
+
+```bash
+# uma vez por ambiente novo, com credencial humana
+terraform -chdir=persistent init -backend-config=homolog.s3.tfbackend
+terraform -chdir=persistent apply -var-file=../homolog.tfvars
+
+# o ARN a cadastrar como AWS_DEPLOY_ROLE_ARN no Environment `homolog` de cada repo
+terraform -chdir=persistent output github_role_arns
 ```
 
 Depois, tudo por workflow:
 
 | Workflow | Gatilho | O que faz |
 |---|---|---|
-| `terraform.yml` | PR → `main` | fmt, validate, tflint nas três camadas; `plan` comentado no PR |
-| `terraform.yml` | push → `main` | `apply` da camada **persistente**, com required reviewer |
-| `bring-up.yml` | manual | apply da efêmera → dispara os 3 deploys → verifica o endpoint público |
-| `tear-down.yml` | manual (confirmação) | remove TargetGroupBindings → destroy da efêmera → **verifica que nada sobrou** |
+| `terraform.yml` | PR → `main` ou `hml` | fmt, validate, tflint nas três camadas |
+| `terraform.yml` | push → `hml` | `apply` da **persistente** de homologação |
+| `terraform.yml` | push → `main` | `apply` da **persistente** de produção, com required reviewer |
+| `bring-up.yml` | manual, input `environment` | apply da efêmera → dispara os 3 deploys → verifica o endpoint público |
+| `tear-down.yml` | manual (`environment` + confirmação) | remove TargetGroupBindings → destroy da efêmera → **verifica que nada sobrou** |
+
+`bring-up` e `tear-down` precisam ser disparados da branch do ambiente: `hml`
+para homologação, `main` para produção. O código que sobe um ambiente é o código
+promovido para ele — o workflow aborta antes de tocar na AWS se o par não bater.
 
 O `bring-up` leva ~25-30 min do zero até demonstrável. **Ensaie uma vez antes de
-valer**, e não descubra no dia.
+valer**, e não descubra no dia — e é para isso que homologação existe.
+
+Os dois ambientes sobem e descem de forma independente: a chave de `concurrency`
+inclui o nome do ambiente, então mexer em homologação não segura produção na
+fila. Subir e derrubar o *mesmo* ambiente continuam serializados.
 
 ## Decisões que a estrutura carrega
 
@@ -183,7 +265,8 @@ contém segredos). Leem daqui:
 | `frontend_bucket_name`, `cloudfront_distribution_id`, `public_domain` | persistente | frontend |
 | `jwt_secret_arn`, `database_secret_arn` | persistente | Lambda, cluster |
 
-Prefixo: `/oficina-mecanica/prod/`.
+Prefixo: `/oficina-mecanica/<ambiente>/` — `prod` ou `homolog`. Os pipelines o
+montam a partir da branch; nenhum deles carrega o nome de um ambiente fixo.
 
 ### Autenticação dos pipelines
 
@@ -196,10 +279,19 @@ Prefixo: `/oficina-mecanica/prod/`.
 | `gha-frontend` | escrever num bucket específico, invalidar uma distribuição |
 | `gha-infrastructure` | admin — é quem cria tudo; o freio é o required reviewer |
 
-Cada role confia apenas em workflows do seu repositório, na branch `main`.
+São **quatro roles por ambiente** — os nomes acima são o sufixo de
+`oficina-mecanica-<ambiente>-`. Cada role confia apenas em workflows do seu
+repositório, na branch daquele ambiente (`main` para produção, `hml` para
+homologação) ou sob o GitHub Environment correspondente.
 
-Configure `AWS_DEPLOY_ROLE_ARN` (secret) e `AWS_REGION` (variable) em cada
-repositório com os valores do output `github_role_arns`.
+`AWS_DEPLOY_ROLE_ARN` é um **secret de GitHub Environment**, não de repositório:
+os dois ambientes usam o mesmo nome e só o escopo do Environment os separa. Em
+cada um dos 4 repositórios, nos Environments `production` e `homolog`, com os
+valores do output `github_role_arns` do ambiente correspondente. `AWS_REGION`
+continua sendo uma variable de repositório — a região é a mesma nos dois.
+
+Trocar dois ARNs entre si dá `AccessDenied` ao assumir: a trust policy amarra
+cada role ao nome do repositório **e** ao ambiente.
 
 ### E-mail
 
@@ -250,10 +342,15 @@ Para trabalhar em um repositório isolado, cada um tem seu próprio
 
 | | |
 |---|---|
-| Camada persistente, parada | **~US$ 1/mês** (Secrets Manager US$ 0,80 + S3/ECR) |
+| Camada persistente, parada | **~US$ 1/mês por ambiente** (Secrets Manager US$ 0,80 + S3/ECR) |
 | Camada efêmera, ligada | **~US$ 0,30/hora** (EKS US$ 0,10 + 2× t3.medium + NAT + ALB + RDS) |
 
 Uma apresentação de 4 horas custa cerca de **US$ 1,20**.
+
+Homologação é efêmera pelo mesmo motivo que produção: mantê-la de pé 24/7
+custaria ~US$ 200/mês, mais que o ambiente que ela existe para proteger. Em
+repouso, os dois ambientes juntos custam ~US$ 2/mês — o dobro de um, não o dobro
+do sistema.
 
 ## Riscos conhecidos
 

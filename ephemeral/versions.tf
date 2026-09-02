@@ -28,9 +28,12 @@ terraform {
     }
   }
 
+  # Mesma razao de persistent/versions.tf: a key vem de -backend-config.
+  #
+  #   terraform -chdir=ephemeral init -backend-config=prod.s3.tfbackend
+  #   terraform -chdir=ephemeral init -backend-config=homolog.s3.tfbackend
   backend "s3" {
     bucket         = "oficina-mecanica-tfstate-881757053222"
-    key            = "ephemeral/terraform.tfstate"
     region         = "sa-east-1"
     dynamodb_table = "oficina-mecanica-tflock"
     encrypt        = true

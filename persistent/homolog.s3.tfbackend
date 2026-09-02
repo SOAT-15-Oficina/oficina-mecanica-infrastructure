@@ -1,0 +1,3 @@
+# Homologacao. Ambientes criados depois de producao ficam sob um prefixo com o
+# proprio nome, no mesmo bucket e sob a mesma tabela de lock.
+key = "homolog/persistent/terraform.tfstate"

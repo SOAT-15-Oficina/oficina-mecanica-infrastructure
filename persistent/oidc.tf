@@ -21,8 +21,13 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
-# Confia apenas em workflows da branch main do repositorio correspondente --
-# nao em qualquer ref, e nem em PR de fork.
+# Confia apenas em workflows da branch de deploy DESTE ambiente no repositorio
+# correspondente -- nao em qualquer ref, e nem em PR de fork.
+#
+# E o que mantem os dois ambientes separados dentro da mesma conta: a role de
+# homologacao so aceita `hml`/`environment:homolog`, a de producao so aceita
+# `main`/`environment:production`. Um push em `hml` nao consegue credencial de
+# producao nem trocando o ARN do secret.
 data "aws_iam_policy_document" "github_assume_role" {
   for_each = local.repositories
 
@@ -50,10 +55,10 @@ data "aws_iam_policy_document" "github_assume_role" {
       # StringLike e um OU, entao aceitar as duas nao afrouxa nada -- org,
       # repositorio e contexto continuam presos em ambas.
       values = [
-        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:ref:refs/heads/main",
-        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:environment:production",
-        "repo:${var.github_org}/${each.value}:ref:refs/heads/main",
-        "repo:${var.github_org}/${each.value}:environment:production",
+        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:ref:refs/heads/${local.deploy_branch}",
+        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:environment:${local.github_environment}",
+        "repo:${var.github_org}/${each.value}:ref:refs/heads/${local.deploy_branch}",
+        "repo:${var.github_org}/${each.value}:environment:${local.github_environment}",
       ]
     }
   }
@@ -63,7 +68,7 @@ resource "aws_iam_role" "github" {
   for_each = local.repositories
 
   name               = "${local.name}-gha-${each.key}"
-  description        = "Role assumida pelo CI de ${each.value}"
+  description        = "Role assumida pelo CI de ${each.value} no ambiente ${var.environment}"
   assume_role_policy = data.aws_iam_policy_document.github_assume_role[each.key].json
 }
 
