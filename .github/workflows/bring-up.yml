@@ -1,20 +1,34 @@
 name: Bring up
 
-# Sobe a camada efemera e dispara o deploy dos tres repositorios de aplicacao.
-# Manual: o ambiente existe para apresentacoes, nao permanentemente.
+# Sobe a camada efemera de UM ambiente e dispara o deploy dos tres repositorios
+# de aplicacao nele. Manual: os ambientes existem para apresentacoes, nao
+# permanentemente.
 #
 # Duracao tipica: ~25-30 min do zero ate demonstravel (EKS ~15min e RDS ~10min
 # em paralelo, mais os tres deploys, migration e seed).
+#
+# Homologacao e producao sao stacks independentes na MESMA conta: prefixo de
+# nome distinto, state distinto, roles distintas. O que decide qual delas sobe e
+# o input `environment` -- e a branch de onde este workflow foi disparado
+# precisa ser a do ambiente, senao o codigo aplicado nao e o que foi promovido.
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: "Ambiente a subir"
+        type: choice
+        options: [homolog, prod]
+        default: homolog
       seed:
         description: "Rodar o seed de dados de demonstracao apos as migrations"
         type: boolean
         default: true
 
+# Por ambiente: subir homologacao nao pode ficar na fila atras de producao, e
+# vice-versa. O tear-down usa o MESMO grupo, para que subir e derrubar o mesmo
+# ambiente nunca corram em paralelo.
 concurrency:
-  group: environment-lifecycle
+  group: environment-lifecycle-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -24,17 +38,36 @@ permissions:
 env:
   TF_VERSION: "1.9.5"
   AWS_REGION: sa-east-1
-  SSM_PREFIX: /oficina-mecanica/prod
+  ENVIRONMENT: ${{ inputs.environment }}
+  SSM_PREFIX: /oficina-mecanica/${{ inputs.environment }}
 
 jobs:
   apply:
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
     outputs:
       cluster: ${{ steps.outputs.outputs.cluster }}
       namespace: ${{ steps.outputs.outputs.namespace }}
+      base_url: ${{ steps.outputs.outputs.base_url }}
     steps:
       - uses: actions/checkout@v4
+
+      # O ambiente e a branch andam juntos: `hml` e o que foi promovido para
+      # homologacao, `main` o que foi promovido para producao. Subir producao a
+      # partir de `hml` aplicaria codigo nao promovido -- e subir homologacao a
+      # partir de `main` testaria algo que nunca passou por homologacao.
+      - name: Check ref matches environment
+        run: |
+          case "$ENVIRONMENT" in
+            prod)    expected=main ;;
+            homolog) expected=hml ;;
+            *)       echo "ambiente desconhecido: $ENVIRONMENT"; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Ambiente '$ENVIRONMENT' se aplica a partir da branch '$expected',"
+            echo "mas este run partiu de '$GITHUB_REF_NAME'."
+            exit 1
+          fi
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -45,10 +78,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Mesmo motivo do job apply-persistent em terraform.yml: prod.tfvars e
-      # gitignored e nao existe no runner, e o default de ses_verified_emails e
-      # `[]` -- aplicar sem estes valores esvaziaria o for_each e DESTRUIRIA as
+      # Mesmo motivo do job apply-persistent em terraform.yml: <ambiente>.tfvars
+      # e gitignored e nao existe no runner, e o default de ses_verified_emails
+      # e `[]` -- aplicar sem estes valores esvaziaria o for_each e DESTRUIRIA as
       # identidades SES ja verificadas.
+      #
+      # Vale para os dois ambientes: mesmo onde a stack nao POSSUI as identidades
+      # (manage_ses_identities = false), o remetente vazio viraria o marcador
+      # "unset" no SSM e a API subiria sem conseguir enviar e-mail.
       - name: Check required inputs
         env:
           EMAILS: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
@@ -65,17 +102,25 @@ jobs:
 
       # A camada persistente precisa existir antes: a efemera le o contrato de
       # SSM que ela publica.
+      #
+      # Em cada camada, o -backend-config escolhe o STATE do ambiente e o
+      # TF_VAR_environment escolhe o que sera escrito nele. Os dois saem do mesmo
+      # $ENVIRONMENT -- e o que impede aplicar um ambiente sobre o state do outro.
       - name: Apply persistent layer
         env:
           TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
           TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
         run: |
-          terraform -chdir=persistent init -input=false
+          export TF_VAR_environment="$ENVIRONMENT"
+          terraform -chdir=persistent init -input=false \
+            -backend-config="${ENVIRONMENT}.s3.tfbackend"
           terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=10m
 
       - name: Apply ephemeral layer
         run: |
-          terraform -chdir=ephemeral init -input=false
+          export TF_VAR_environment="$ENVIRONMENT"
+          terraform -chdir=ephemeral init -input=false \
+            -backend-config="${ENVIRONMENT}.s3.tfbackend"
           terraform -chdir=ephemeral apply -input=false -auto-approve -lock-timeout=30m
 
       - name: Export outputs
@@ -84,6 +129,7 @@ jobs:
           {
             echo "cluster=$(terraform -chdir=ephemeral output -raw eks_cluster_name)"
             echo "namespace=$(aws ssm get-parameter --name "${SSM_PREFIX}/kube_namespace" --query Parameter.Value --output text)"
+            echo "base_url=$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" --query Parameter.Value --output text)"
           } >> "$GITHUB_OUTPUT"
 
   # Cada repositorio de aplicacao e dono do proprio deploy. O bring-up apenas
@@ -104,12 +150,24 @@ jobs:
       # pelo timestamp de criacao, posterior ao dispatch.
       - name: Deploy applications
         run: |
+          # A branch e o unico jeito de dizer a um repositorio de aplicacao qual
+          # ambiente ele deve alvejar: o ci.yml de la deriva ambiente, prefixo do
+          # SSM e GitHub Environment de `github.ref_name`. Um dispatch na branch
+          # errada faz o deploy no ambiente errado -- por isso ela sai do mesmo
+          # $ENVIRONMENT que ja validamos contra o ref deste run.
+          case "$ENVIRONMENT" in
+            prod)    REF=main ;;
+            homolog) REF=hml ;;
+            *)       echo "ambiente desconhecido: $ENVIRONMENT"; exit 1 ;;
+          esac
+          echo "disparando deploys em '$REF' para o ambiente '$ENVIRONMENT'"
+
           dispatch() {
             repo="$ORG/oficina-mecanica-$1"
             before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            gh workflow run ci.yml --repo "$repo" --ref main >&2
+            gh workflow run ci.yml --repo "$repo" --ref "$REF" >&2
             for _ in $(seq 1 30); do
-              id="$(gh api "repos/$repo/actions/runs?event=workflow_dispatch&branch=main&per_page=10" \
+              id="$(gh api "repos/$repo/actions/runs?event=workflow_dispatch&branch=$REF&per_page=10" \
                 --jq "[.workflow_runs[] | select(.created_at >= \"$before\")] | sort_by(.created_at) | last | .id // empty")"
               if [ -n "$id" ]; then echo "$id"; return 0; fi
               sleep 5
@@ -149,20 +207,21 @@ jobs:
           await serverless "$serverless_id"
           await frontend "$frontend_id"
 
+  # Sem `environment:` e sem credencial AWS de proposito.
+  #
+  # Agora que o secret AWS_DEPLOY_ROLE_ARN vive DENTRO do GitHub Environment,
+  # qualquer job que o use passa pelo required reviewer -- e este run pediria
+  # duas aprovacoes. A URL publica ja foi lida pelo job `apply`, que tinha a
+  # credencial; daqui e so um curl na internet.
   verify:
-    needs: [deploy-applications]
+    needs: [apply, deploy-applications]
     runs-on: ubuntu-latest
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Check public endpoint
+        env:
+          URL: ${{ needs.apply.outputs.base_url }}
         run: |
-          URL="$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" \
-            --query Parameter.Value --output text)"
-          echo "Ambiente em: $URL"
+          echo "Ambiente '$ENVIRONMENT' em: $URL"
 
           for _ in $(seq 1 40); do
             if curl -fsS "${URL}/api/ping" | grep -Fx Pong; then

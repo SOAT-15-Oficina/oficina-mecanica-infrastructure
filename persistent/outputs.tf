@@ -19,8 +19,24 @@ output "frontend_bucket_name" {
 }
 
 output "github_role_arns" {
-  description = "Roles assumidas por OIDC. Configure cada uma como AWS_DEPLOY_ROLE_ARN no repositorio correspondente."
+  description = <<-EOT
+    Roles assumidas por OIDC, uma por repositorio. Cada uma vira o secret
+    AWS_DEPLOY_ROLE_ARN do repositorio correspondente -- dentro do GitHub
+    Environment deste ambiente (ver o output `deploy_contract`), nao no nivel do
+    repositorio: os dois ambientes usam o mesmo nome de secret e so o escopo do
+    Environment os separa.
+  EOT
   value       = { for k, r in aws_iam_role.github : k => r.arn }
+}
+
+output "deploy_contract" {
+  description = "Como o CI chega neste ambiente: branch, GitHub Environment e prefixo do SSM."
+  value = {
+    environment        = var.environment
+    deploy_branch      = local.deploy_branch
+    github_environment = local.github_environment
+    ssm_prefix         = local.ssm_prefix
+  }
 }
 
 output "jwt_secret_arn" {
@@ -34,6 +50,12 @@ output "database_secret_arn" {
 }
 
 output "ses_verified_emails" {
-  description = "Identidades SES. O SES esta em sandbox: so entrega para estas."
+  description = <<-EOT
+    Identidades SES criadas por ESTA stack. O SES esta em sandbox: so entrega
+    para enderecos verificados na conta.
+
+    Vem vazio nos ambientes que nao as possuem (`manage_ses_identities = false`);
+    eles enviam pelas identidades de producao, que sao da mesma conta.
+  EOT
   value       = keys(aws_sesv2_email_identity.verified)
 }

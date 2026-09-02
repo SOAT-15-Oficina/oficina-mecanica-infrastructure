@@ -8,8 +8,10 @@
 # O SES esta em SANDBOX: entrega apenas para estes enderecos, com teto de 200
 # e-mails/24h e 1/segundo. Endereco fora da lista recebe MessageRejected -- e o
 # provider do monolito propaga esse erro em vez de engoli-lo.
+# Identidade SES pertence a CONTA: so o ambiente dono as cria. Ver
+# `manage_ses_identities` em variables.tf.
 resource "aws_sesv2_email_identity" "verified" {
-  for_each = toset(var.ses_verified_emails)
+  for_each = local.manage_ses_identities ? toset(var.ses_verified_emails) : toset([])
 
   email_identity = each.value
 }
