@@ -15,9 +15,10 @@ environment = "prod"
 project     = "oficina-mecanica"
 github_org  = "SOAT-15-Oficina"
 
-# O SES esta em sandbox: SO entrega para os enderecos desta lista, com teto de
-# 200 e-mails/24h. Cada um recebe um link de verificacao que alguem precisa
-# clicar -- e um passo manual, uma vez por endereco.
+# REMETENTES verificados no SES. A conta tem acesso de producao concedido, entao
+# a entrega nao se limita a esta lista -- mas todo remetente precisa estar aqui.
+# Cada endereco recebe um link de verificacao que alguem precisa clicar -- e um
+# passo manual, uma vez por endereco.
 ses_verified_emails = [
   # "fulano@example.com",
 ]

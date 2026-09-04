@@ -2,12 +2,14 @@
 #
 # Vivem na camada PERSISTENTE por um motivo operacional concreto: destruir uma
 # identidade a remove da conta, e recria-la exige que alguem clique num link
-# enviado por e-mail. Num ambiente que sobe e desce a cada apresentacao, isso
-# viraria um passo manual antes de toda demo.
+# enviado por e-mail. Num ambiente que sobe e desce sob demanda, isso viraria um
+# passo manual antes de todo bring-up.
 #
-# O SES esta em SANDBOX: entrega apenas para estes enderecos, com teto de 200
-# e-mails/24h e 1/segundo. Endereco fora da lista recebe MessageRejected -- e o
-# provider do monolito propaga esse erro em vez de engoli-lo.
+# A conta tem ACESSO DE PRODUCAO concedido no SES (sa-east-1): 50.000 e-mails/24h
+# a 14/segundo, e entrega para qualquer destinatario. Esta lista sao os
+# REMETENTES -- e o remetente continua precisando de verificacao. MessageRejected
+# ainda acontece (remetente nao verificado, destinatario suprimido, conta
+# pausada), e o provider do monolito propaga esse erro em vez de engoli-lo.
 # Identidade SES pertence a CONTA: so o ambiente dono as cria. Ver
 # `manage_ses_identities` em variables.tf.
 resource "aws_sesv2_email_identity" "verified" {

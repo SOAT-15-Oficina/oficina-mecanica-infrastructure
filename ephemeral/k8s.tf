@@ -29,6 +29,10 @@ resource "kubernetes_config_map" "api" {
     # CloudFront + /api, porque esses links sao clicados fora do painel.
     APP_BASE_URL = "${data.aws_ssm_parameter.public_base_url.value}/api"
 
+    # Literal, sem condicional por ambiente: HOMOLOGACAO E PRODUCAO enviam pelo
+    # SES. O `mailhog` so existe no local/docker-compose.local.yml, e o monolito
+    # nao tem provider padrao -- valor desconhecido derruba o processo no boot,
+    # em vez de virar e-mail que nunca sai.
     EMAIL_PROVIDER     = "ses"
     AWS_DEFAULT_REGION = var.region
     SES_SENDER_EMAIL   = data.aws_ssm_parameter.ses_sender_email.value
