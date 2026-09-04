@@ -16,6 +16,25 @@ os READMEs dos outros três são operacionais e apontam para cá.
 | [oficina-mecanica-serverless](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless) | `POST /auth/login` e `POST /auth/register` | zip da Lambda |
 | [oficina-mecanica-frontend](https://github.com/SOAT-15-Oficina/oficina-mecanica-frontend) | Painel web estático | objetos no S3 |
 
+## Documentação da arquitetura
+
+Este repositório é o dono da visão de sistema. A documentação formal — diagramas,
+RFCs, ADRs e o modelo de dados — vive em [`docs/`](docs/):
+
+| | |
+|---|---|
+| [Índice completo](docs/README.md) | como o conjunto se organiza |
+| [Componentes](docs/diagramas/componentes.md) | visão de nuvem: borda, VPC, APIs, banco, observabilidade |
+| [Sequência — autenticação](docs/diagramas/sequencia-autenticacao.md) | login, emissão do JWT e consumo de rota protegida |
+| [Sequência — ordem de serviço](docs/diagramas/sequencia-ordem-de-servico.md) | abertura, orçamento, aprovação e execução |
+| [Implantação](docs/diagramas/implantacao.md) | onde cada artefato roda e quem faz o deploy |
+| [Modelo de dados](docs/banco-de-dados.md) | justificativa do banco, ER, relacionamentos e ajustes |
+| [RFCs](docs/README.md#rfcs--propostas-técnicas) | nuvem, banco, autenticação, observabilidade, repositórios |
+| [ADRs](docs/README.md#adrs--decisões-arquiteturais) | 11 decisões em vigor |
+
+O restante deste README é **operacional**: o que este repositório provisiona e
+como operá-lo.
+
 ## Arquitetura
 
 ```mermaid
@@ -43,7 +62,7 @@ flowchart TB
     end
 
     subgraph aws [Servicos AWS]
-        SES[SES sandbox]
+        SES[SES<br/>acesso de producao]
         SM[Secrets Manager]
         ECR[(ECR)]
     end
@@ -79,9 +98,76 @@ Por isso o monolito continua servindo `/customers` e a Lambda `/auth/login`, sem
 saber que existe um `/api` na frente — e o painel, servido da mesma origem, não
 precisa de CORS nem de URL de API configurada no build.
 
+## Arquitetura deste repositório
+
+Os diretórios Terraform e o que cada um possui:
+
+```mermaid
+flowchart TB
+    subgraph BS [bootstrap/ — uma vez por conta, credencial humana]
+        B1[(bucket de state)]
+        B2[(tabela de lock)]
+    end
+
+    subgraph PS ["persistent/ — ~US$ 1/mês, apply automático em push"]
+        P1[OIDC + 4 roles por ambiente]
+        P2[(ECR)]
+        P3[S3 + CloudFront + Function]
+        P4[API Gateway + stage]
+        P5[Secrets Manager]
+        P6[Identidades SES]
+        P7[SSM — parâmetros estáveis]
+    end
+
+    subgraph ES ["ephemeral/ — ~US$ 0,30/hora, bring-up manual"]
+        E1[VPC, subnets, NAT, SGs]
+        E2[EKS + node group + addons]
+        E3[ALB interno + TargetGroupBinding]
+        E4[(RDS PostgreSQL)]
+        E5[Lambda auth]
+        E6[VPC Link + rotas do gateway]
+        E7[Objetos K8s: ns, ConfigMap, Secret, Deployment, Service, HPA]
+        E8[SSM — parâmetros do ciclo]
+    end
+
+    BS -.guarda o state de.-> PS
+    BS -.guarda o state de.-> ES
+    PS -.API id, ECR, segredos.-> ES
+    P7 --> APPS[Pipelines dos outros 3 repositórios]
+    E8 --> APPS
+```
+
+O corte é por **ciclo de vida**, não por tipo de recurso — o racional está na
+[ADR-0006](docs/adr/0006-duas-camadas-de-terraform.md), e o desvio em relação ao
+enunciado da fase (infra de banco e de cluster no mesmo repositório) está
+registrado na [RFC-0005](docs/rfc/0005-segregacao-em-repositorios.md).
+
+## Deploy ativo e contratos de API
+
+Este repositório não expõe API própria. Ele **cria** a porta pública e publica a
+URL no SSM:
+
+```bash
+aws ssm get-parameter --name /oficina-mecanica/prod/public_base_url \
+  --query Parameter.Value --output text
+# ou, logo após um apply:
+terraform -chdir=persistent output public_base_url
+```
+
+| | |
+|---|---|
+| Produção | `/oficina-mecanica/prod/public_base_url` |
+| Homologação | `/oficina-mecanica/homolog/public_base_url` |
+| Swagger da API de negócio | `<URL_PUBLICA>/api/docs` · [fonte](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/blob/main/docs/swagger.yaml) |
+| Contrato de `/auth/*` | [fonte](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless/blob/main/docs/openapi.yaml) |
+
+Com o ambiente desligado, o domínio existe e responde 404 — comportamento
+esperado, ver [ADR-0003](docs/adr/0003-api-gateway-como-unica-porta-publica.md).
+
 ## Duas camadas de Terraform
 
-O ambiente sobe para apresentações e desce depois. Nem tudo suporta esse ciclo:
+O ambiente sobe sob demanda e desce quando não está em uso. Nem tudo suporta
+esse ciclo:
 
 | Camada | Diretório | Custo | Conteúdo |
 |---|---|---|---|
@@ -94,7 +180,7 @@ conveniência:
 
 - **Identidades SES** — destruir uma remove-a da conta, e recriá-la exige que
   alguém clique num link de verificação por e-mail. Seria um passo manual antes
-  de cada apresentação.
+  de cada bring-up.
 - **CloudFront + S3** — criar uma distribuição leva ~15-20 min e destruí-la
   outros ~15-25 (precisa ser desabilitada antes). Parados custam ~US$ 0, e o
   domínio permanece estável — o que importa porque ele é a base dos links de
@@ -298,13 +384,28 @@ cada role ao nome do repositório **e** ao ambiente.
 O monolito envia pela **API do SES v2 via IRSA**: o pod assume uma role através
 de um ServiceAccount anotado, e não existe credencial estática em lugar nenhum.
 
-O SES opera em **sandbox**: entrega apenas para endereços verificados
-(`var.ses_verified_emails`), com teto de 200 e-mails/24h e 1/segundo. Endereço
-fora da lista recebe `MessageRejected`, e o provider propaga esse erro em vez de
-engoli-lo.
+`EMAIL_PROVIDER = "ses"` é fixado no ConfigMap em `ephemeral/k8s.tf`, e a mesma
+camada é aplicada aos dois ambientes: **homologação e produção enviam pelo SES,
+sem exceção**. O `mailhog` existe apenas no `local/docker-compose.local.yml`.
 
-Verificar um endereço **não é automatizável** — cada um recebe um link que
+A conta tem **acesso de produção concedido** no SES (`sa-east-1`), com cota de
+50.000 e-mails/24h a 14/segundo — a fila de sandbox (200/24h, 1/s, só
+destinatários verificados) não se aplica mais. Entrega para qualquer
+destinatário; o que continua exigindo verificação é o **remetente**
+(`var.ses_sender_email`), e um `MessageRejected` ainda é possível — remetente
+não verificado, destinatário em lista de supressão, conta pausada. O provider do
+monolito propaga esse erro em vez de engoli-lo.
+
+Verificar um remetente **não é automatizável** — o endereço recebe um link que
 alguém precisa clicar. Por isso as identidades vivem na camada persistente.
+
+> **Consequência de sair do sandbox:** homologação também passou a alcançar
+> caixas reais. O sandbox era, na prática, uma rede de proteção contra e-mail de
+> teste chegando a cliente de verdade; ela não existe mais. Use dados de
+> exemplo com endereços controlados em `hml`.
+
+Cada ambiente tem o próprio *configuration set* (`oficina-mecanica-homolog` e
+`oficina-mecanica-prod`), então as métricas de envio não se misturam.
 
 ### Segredos
 
@@ -342,26 +443,12 @@ Para trabalhar em um repositório isolado, cada um tem seu próprio
 
 | | |
 |---|---|
-| Camada persistente, parada | **~US$ 1/mês por ambiente** (Secrets Manager US$ 0,80 + S3/ECR) |
-| Camada efêmera, ligada | **~US$ 0,30/hora** (EKS US$ 0,10 + 2× t3.medium + NAT + ALB + RDS) |
+| Camada persistente, parada | US$ 1/mês por ambiente (Secrets Manager US$ 0,80 + S3/ECR) |
+| Camada efêmera, ligada | US$ 0,30/hora (EKS US$ 0,10 + 2× t3.medium + NAT + ALB + RDS) |
 
-Uma apresentação de 4 horas custa cerca de **US$ 1,20**.
+Uma janela de uso de 4 horas custa cerca de **US$ 1,20**.
 
 Homologação é efêmera pelo mesmo motivo que produção: mantê-la de pé 24/7
 custaria ~US$ 200/mês, mais que o ambiente que ela existe para proteger. Em
 repouso, os dois ambientes juntos custam ~US$ 2/mês — o dobro de um, não o dobro
 do sistema.
-
-## Riscos conhecidos
-
-- **`POST /auth/register` é público e aceita `role`** — qualquer um pode criar um
-  usuário `admin`. Comportamento herdado do monolito, mantido de forma
-  deliberada para que o split fosse estritamente estrutural, e agora exposto numa
-  URL pública. Documentado em `oficina-mecanica-serverless`.
-- **Segredos no `tfstate`** — mitigado pelo bucket privado, versionado e
-  cifrado, mas continua sendo o modelo.
-- **RDS é efêmero** — os dados são recriados por migrations + seed a cada
-  `bring-up`. Se o seed falhar, falha na frente da plateia.
-- **Um NAT só, sem redundância** — perda de disponibilidade, não de
-  funcionalidade; aceitável num ambiente de apresentação.
-- **Sem observabilidade** — adiado por decisão do time.

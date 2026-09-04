@@ -51,8 +51,8 @@ output "database_secret_arn" {
 
 output "ses_verified_emails" {
   description = <<-EOT
-    Identidades SES criadas por ESTA stack. O SES esta em sandbox: so entrega
-    para enderecos verificados na conta.
+    Identidades SES criadas por ESTA stack. Sao os REMETENTES verificados: a
+    conta tem acesso de producao, entao a entrega nao se limita a esta lista.
 
     Vem vazio nos ambientes que nao as possuem (`manage_ses_identities = false`);
     eles enviam pelas identidades de producao, que sao da mesma conta.
