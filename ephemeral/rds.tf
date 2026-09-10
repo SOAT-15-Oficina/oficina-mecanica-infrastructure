@@ -8,7 +8,7 @@ resource "aws_db_subnet_group" "main" {
 # migration do pipeline daquele repositorio cria as tabelas e roda o seed.
 #
 # Faz parte da camada efemera por decisao do time: o ambiente inteiro sobe e
-# desce a cada apresentacao, e migrations + seed rodam a cada bring-up.
+# desce a cada ciclo, e migrations + seed rodam a cada bring-up.
 resource "aws_db_instance" "main" {
   identifier = local.name
   engine     = "postgres"

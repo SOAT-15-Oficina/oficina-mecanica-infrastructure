@@ -41,7 +41,8 @@ resource "aws_subnet" "private" {
   }
 }
 
-# Um NAT so. Ambiente efemero de apresentacao nao justifica um por AZ; a perda e
+# Um NAT so. Ambiente efemero, que sobe sob demanda, nao justifica um por AZ; a
+# perda e
 # de disponibilidade, nao de funcionalidade.
 #
 # Por que NAT e nao VPC endpoints: tres imagens obrigatorias vem de registries

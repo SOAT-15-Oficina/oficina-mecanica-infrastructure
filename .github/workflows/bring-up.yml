@@ -1,11 +1,11 @@
 name: Bring up
 
 # Sobe a camada efemera de UM ambiente e dispara o deploy dos tres repositorios
-# de aplicacao nele. Manual: os ambientes existem para apresentacoes, nao
+# de aplicacao nele. Manual: os ambientes sobem sob demanda, nao
 # permanentemente.
 #
-# Duracao tipica: ~25-30 min do zero ate demonstravel (EKS ~15min e RDS ~10min
-# em paralelo, mais os tres deploys, migration e seed).
+# Duracao tipica: ~25-30 min do zero ate o ambiente atender requisicoes (EKS
+# ~15min e RDS ~10min em paralelo, mais os tres deploys, migration e seed).
 #
 # Homologacao e producao sao stacks independentes na MESMA conta: prefixo de
 # nome distinto, state distinto, roles distintas. O que decide qual delas sobe e
@@ -20,7 +20,7 @@ on:
         options: [homolog, prod]
         default: homolog
       seed:
-        description: "Rodar o seed de dados de demonstracao apos as migrations"
+        description: "Rodar o seed de dados de exemplo apos as migrations"
         type: boolean
         default: true
 

@@ -24,13 +24,14 @@ variable "github_org" {
 
 variable "ses_verified_emails" {
   description = <<-EOT
-    Enderecos verificados no SES. O SES opera em sandbox: so entrega para
-    enderecos desta lista, com teto de 200 e-mails/24h.
+    Enderecos de REMETENTE verificados no SES. A conta tem acesso de producao
+    concedido, entao a entrega nao se limita a esta lista -- ela existe para os
+    enderecos dos quais o sistema envia.
 
     A verificacao NAO e automatizavel -- cada endereco recebe um link que
     alguem precisa clicar. Por isso estas identidades vivem na camada
     persistente: destrui-las obrigaria a reverificar tudo antes de cada
-    apresentacao.
+    bring-up.
   EOT
   type        = list(string)
   default     = []
