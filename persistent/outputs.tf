@@ -59,3 +59,27 @@ output "ses_verified_emails" {
   EOT
   value       = keys(aws_sesv2_email_identity.verified)
 }
+
+output "datadog" {
+  description = <<-EOT
+    Onde a observabilidade deste ambiente foi parar. `enabled = "false"` significa
+    que a stack subiu sem Datadog -- nao que algo falhou.
+
+    Os dois paineis abrem em https://app.<site>/dashboard/<id>.
+  EOT
+
+  # Todos os campos como string, e os dois ramos do condicional com as MESMAS
+  # chaves: um output cujo tipo muda conforme uma variavel nao e consumivel por
+  # nada -- nem por `terraform output -json`, nem por um passo de CI.
+  value = {
+    enabled               = local.datadog_enabled ? "true" : "false"
+    site                  = local.datadog_enabled ? var.datadog_site : ""
+    secret_arn            = local.datadog_enabled ? aws_secretsmanager_secret.datadog[0].arn : ""
+    aws_integration       = local.manage_datadog_aws_integration ? aws_iam_role.datadog_integration[0].arn : "herdada do ambiente que a possui (ver manage_datadog_aws_integration)"
+    forwarder_arn         = local.datadog_enabled && var.datadog_forward_cloudwatch_logs ? aws_cloudformation_stack.datadog_forwarder[0].outputs["DatadogForwarderArn"] : "desligado"
+    dashboard_operacional = local.datadog_enabled ? datadog_dashboard.operational[0].id : ""
+    dashboard_negocio     = local.datadog_enabled ? datadog_dashboard.business[0].id : ""
+    synthetic_test_id     = local.datadog_enabled ? datadog_synthetics_test.ping[0].id : ""
+    notification_targets  = join(" ", local.datadog_notification_targets)
+  }
+}

@@ -134,6 +134,33 @@ jobs:
             exit 1
           fi
 
+
+      # Mesma armadilha das identidades do SES, com outro nome. Se as chaves do
+      # Datadog sumirem, o default de `datadog_enabled` continua `true` e o
+      # apply morre no precondition -- e o atalho obvio para destravar
+      # (`datadog_enabled = false`) DESTRUIRIA paineis, monitores e o historico
+      # de silenciamento deles. Melhor falhar aqui, antes de qualquer plano.
+      - name: Check Datadog credentials
+        env:
+          DD_ENABLED: ${{ vars.TF_VAR_DATADOG_ENABLED }}
+          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+        run: |
+          if [ "${DD_ENABLED:-true}" = "false" ]; then
+            echo "Datadog desligado neste ambiente por TF_VAR_DATADOG_ENABLED=false."
+            exit 0
+          fi
+          missing=""
+          [ -n "$DD_API_KEY" ] || missing="$missing DATADOG_API_KEY"
+          [ -n "$DD_APP_KEY" ] || missing="$missing DATADOG_APP_KEY"
+          if [ -n "$missing" ]; then
+            echo "Secrets ausentes no GitHub Environment:$missing"
+            echo "Cadastre-os, ou desligue o Datadog neste ambiente com a"
+            echo "variable TF_VAR_DATADOG_ENABLED=false (ciente de que isso"
+            echo "destroi os paineis e monitores ja criados)."
+            exit 1
+          fi
+
       # O -backend-config escolhe o STATE do ambiente e o TF_VAR_environment
       # escolhe o que sera escrito nele. Os dois vem do mesmo $ENVIRONMENT: e o
       # que impede aplicar a configuracao de um ambiente sobre o state do outro.
@@ -141,6 +168,10 @@ jobs:
         env:
           TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
           TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
+          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
+          TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
+          TF_VAR_datadog_enabled: ${{ vars.TF_VAR_DATADOG_ENABLED || 'true' }}
+          TF_VAR_datadog_site: ${{ vars.TF_VAR_DATADOG_SITE || 'datadoghq.com' }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
           terraform -chdir=persistent init -input=false \

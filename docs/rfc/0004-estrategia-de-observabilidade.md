@@ -106,6 +106,27 @@ dashboard, não a instrumentação.
 
 ## Plano
 
+**Estado da execução (2026-09-10).** As fases 2, 4 e 5 estão implementadas em
+`oficina-mecanica-infrastructure`; as fases 1 e 3 pertencem a
+`oficina-mecanica-monolith` e `oficina-mecanica-serverless` e continuam
+pendentes.
+
+| Fase | Onde | Estado |
+|---|---|---|
+| 1 — logs estruturados JSON com `request_id` | monolith, serverless | pendente |
+| 2 — coleta (agente, Forwarder, integração AWS) | `ephemeral/datadog.tf`, `persistent/datadog.tf` | **feito** |
+| 3 — instrumentação HTTP e APM na aplicação | monolith | pendente |
+| 4 — dashboards como código | `persistent/datadog_dashboard_*.tf` | **feito** |
+| 5 — alertas | `persistent/datadog_monitors.tf` | **feito** |
+
+A ordem não é acidental, e a consequência é literal: painéis e alertas **existem
+e ficam em zero** até a fase 1 entregar os campos que eles consultam. É o estado
+correto — infraestrutura pronta esperando o dado, e não configuração quebrada.
+
+O *parameter mapping* do API Gateway (fase 1) é a única parte da fundação que
+mora neste repositório e ainda não foi feita: sem ele o `$context.requestId` não
+chega à aplicação como header.
+
 ### Fase 1 — Fundação (pré-requisito de tudo)
 
 Logs estruturados JSON com `request_id` propagado da borda, conforme
@@ -113,12 +134,27 @@ Logs estruturados JSON com `request_id` propagado da borda, conforme
 backend recebe texto livre e nenhuma correlação é possível. Inclui o *parameter
 mapping* no API Gateway que injeta `$context.requestId` como header.
 
-### Fase 2 — Coleta
+### Fase 2 — Coleta ✅
 
 - `helm_release` do agente na camada efêmera, ao lado do `metrics-server`.
 - Chave de API no Secrets Manager, injetada como `Secret` do Kubernetes.
 - Encaminhamento dos log groups do API Gateway e da Lambda.
 - Métricas do RDS via integração AWS.
+
+Duas coisas foram decididas na implementação e não estavam previstas aqui:
+
+**A integração AWS pertence à conta, não ao ambiente.** Com homologação e
+produção na mesma conta, os dois `apply` disputariam o mesmo recurso do lado do
+Datadog. Resolvido do mesmo jeito que as identidades do SES: só produção a
+possui (`manage_datadog_aws_integration`), e homologação continua enxergando
+tudo porque as métricas chegam com a tag `env` de cada recurso — daí a tag `env`
+ter sido adicionada ao `default_tags` das duas camadas.
+
+**Quais log groups são encaminhados é decisão deste repositório.** O campo
+`logs_config.sources` da integração ficou vazio de propósito: preenchido, o
+Datadog assinaria sozinho os log groups que *ele* julgasse relevantes numa conta
+que hospeda outro projeto. As assinaturas são `aws_cloudwatch_log_subscription_filter`
+explícitos, visíveis no plano.
 
 ### Fase 3 — Instrumentação da aplicação
 
@@ -126,7 +162,7 @@ Middleware de métricas no Fiber: histograma de duração por rota e método,
 contador por status. Traço por requisição, carregando `request_id` como tag —
 assim log e trace se encontram.
 
-### Fase 4 — Dashboards, como código Terraform
+### Fase 4 — Dashboards, como código Terraform ✅
 
 **Operacional**
 
@@ -141,7 +177,11 @@ assim log e trace se encontram.
 | Duração e erro da Lambda; cold starts | integração AWS |
 | Conexões, CPU e IOPS do RDS | integração AWS |
 
-**Negócio** — os três exigidos pela fase:
+**Negócio** — os três exigidos pela fase. Todos derivados de **métricas de log**
+(`persistent/datadog_metrics.tf`), e não de consulta a log: o Datadog conta o
+evento na ingestão e guarda o número, com retenção de métrica em vez de retenção
+de log — o que resolve de uma vez o custo de ingestão e a janela curta de
+retenção.
 
 | Painel | Como se calcula |
 |---|---|
@@ -153,7 +193,7 @@ As colunas de timestamp já existem no schema — foi por isso que a tabela de
 histórico de status pôde ser removida sem perder a métrica
 ([modelo de dados, §4.2](../banco-de-dados.md)).
 
-### Fase 5 — Alertas
+### Fase 5 — Alertas ✅
 
 | Alerta | Condição | Severidade |
 |---|---|---|

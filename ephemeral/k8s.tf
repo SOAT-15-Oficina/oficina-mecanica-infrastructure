@@ -38,6 +38,34 @@ resource "kubernetes_config_map" "api" {
     SES_SENDER_EMAIL   = data.aws_ssm_parameter.ses_sender_email.value
     SES_REPLY_TO       = data.aws_ssm_parameter.ses_sender_email.value
     SES_CONFIG_SET     = data.aws_ssm_parameter.ses_configuration_set.value
+
+    # --- Observabilidade -----------------------------------------------------
+    #
+    # DD_ENV e DD_SERVICE sao o unified service tagging visto do lado da
+    # aplicacao: com os mesmos valores que o agente publica, metrica, log e
+    # traco de uma requisicao caem no mesmo lugar.
+    #
+    # DD_VERSION nao esta aqui: ela e a tag da imagem, e a imagem pertence ao
+    # pipeline do -monolith (ver o ignore_changes deste Deployment). Quem faz o
+    # deploy e quem sabe qual SHA subiu.
+    DD_ENV     = local.dd_env
+    DD_SERVICE = local.dd_service
+
+    # Amostragem de traco. 100% aqui: o volume deste ambiente e baixo e um traco
+    # perdido durante a apresentacao custa mais que a ingestao inteira.
+    DD_TRACE_ENABLED     = tostring(local.datadog_enabled)
+    DD_TRACE_SAMPLE_RATE = "1.0"
+
+    # Faz o dd-trace-go injetar `dd.trace_id` em cada linha de log -- e o que
+    # permite pular de um log para o traco daquela requisicao, o mesmo papel que
+    # o `request_id` cumpre na direcao do access log do gateway.
+    DD_LOGS_INJECTION = "true"
+
+    # O agente e um DaemonSet: o endpoint dele e o NO em que o pod caiu, e nao
+    # um Service com IP fixo. Por isso o host vem por fieldRef no Deployment
+    # abaixo, e nao daqui.
+    DD_TRACE_AGENT_PORT = "8126"
+    DD_DOGSTATSD_PORT   = "8125"
   }
 }
 
@@ -128,7 +156,12 @@ resource "kubernetes_deployment" "api" {
 
     template {
       metadata {
-        labels = local.app_labels
+        # As tags do Datadog entram SO no template, nunca no `selector` acima:
+        # `selector` e imutavel depois de criado, e um label a mais ali obrigaria
+        # a recriar o Deployment inteiro.
+        labels = merge(local.app_labels, local.datadog_pod_labels)
+
+        annotations = local.datadog_pod_annotations
       }
 
       spec {
@@ -152,6 +185,19 @@ resource "kubernetes_deployment" "api" {
 
           env_from {
             secret_ref { name = kubernetes_secret.api.metadata[0].name }
+          }
+
+          # O unico valor que nao cabe no ConfigMap: o IP do NO onde este pod
+          # caiu. O agente e um DaemonSet, entao cada pod fala com o agente da
+          # propria maquina -- e qual e essa maquina so se sabe no agendamento.
+          env {
+            name = "DD_AGENT_HOST"
+
+            value_from {
+              field_ref {
+                field_path = "status.hostIP"
+              }
+            }
           }
 
           resources {

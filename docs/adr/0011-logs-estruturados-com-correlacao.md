@@ -1,6 +1,6 @@
 # ADR-0011 — Logs estruturados com correlação de requisições
 
-- **Estado:** Proposta
+- **Estado:** Aceita
 - **Data:** 2026-09-02
 - **Relacionada:** [RFC-0004](../rfc/0004-estrategia-de-observabilidade.md)
 
@@ -71,6 +71,8 @@ Campos fixos, iguais nos dois runtimes:
 | `route`, `method`, `status`, `duration_ms` | linha de acesso | `/work-orders` |
 | `user`, `role` | claims do JWT, quando houver | `admin` |
 | `work_order_id`, `work_order_code` | quando a operação tiver uma OS | — |
+| `event` | nome do evento de domínio (§4) | `work_order.created` |
+| `integration` | dependência externa envolvida, em `level=ERROR` | `ses`, `rds`, `apigateway` |
 | `error` | `err.Error()` em `level=ERROR` | — |
 
 **Nunca** entram em log: `password`, `password_hash`, o token, o segredo JWT, e
@@ -79,12 +81,19 @@ o `document` do cliente (CPF/CNPJ é dado pessoal — usa-se `customer_id`).
 ### 4. Eventos de domínio explícitos
 
 Além da linha de acesso, eventos nomeados para o que os dashboards e alertas
-precisam contar:
+precisam contar.
+
+**O nome vai num campo próprio, `event` — não no `msg`.** `msg` é texto para
+humano e muda na primeira refatoração de mensagem; `event` é identificador e não
+muda. É `@event` que as métricas de log e os alertas consultam
+(`persistent/datadog_metrics.tf` e `persistent/datadog_monitors.tf`), e alertar
+sobre texto de mensagem é a forma mais rápida de ter um alerta que para de
+disparar sem ninguém perceber.
 
 | Evento | Nível | Quando |
 |---|---|---|
 | `work_order.created` | INFO | OS aberta |
-| `work_order.status_changed` | INFO | transição aceita, com `from` e `to` |
+| `work_order.status_changed` | INFO | transição aceita, com `from`, `to` e `duration_ms` — o tempo passado no status anterior |
 | `work_order.transition_rejected` | WARN | transição inválida |
 | `budget.sent` / `budget.send_failed` | INFO / ERROR | envio do orçamento |
 | `approval.decided` | INFO | cliente aprovou ou reprovou |
@@ -118,6 +127,8 @@ seguinte, e o `request_id` é pré-requisito dele, não substituto. Registrado n
 **Positivas**
 - Uma requisição vira uma consulta: `request_id = "..."` devolve o rastro
   inteiro, incluindo o access log da borda.
+- Os três painéis de negócio da fase saem daqui sem consulta ao banco: os
+  contadores são métricas derivadas destes eventos.
 - Alerta por `level` e por evento nomeado, sem depender de texto de mensagem.
 - Campos `env` e `version` permitem separar homologação de produção e atribuir
   uma regressão a um deploy.
