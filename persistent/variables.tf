@@ -216,12 +216,18 @@ variable "datadog_forwarder_template_url" {
   description = <<-EOT
     Template do CloudFormation do Datadog Forwarder.
 
-    `latest.yaml` segue a versao mais nova. Para congelar (recomendado quando o
-    ambiente estiver em avaliacao), troque por uma URL versionada:
-    https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/5.4.13.yaml
+    CONGELADO numa versao, de proposito. `latest.yaml` faz o proximo apply desta
+    camada -- que roda a cada merge em main, e nao quando alguem decide atualizar
+    o Forwarder -- trocar a versao da Lambda e da layer sem que nada no diff
+    diga isso. Trocar de versao de coletor no meio de uma avaliacao e a forma
+    mais barata de perder log sem explicacao.
+
+    Para atualizar, mude este default num PR: o plano passa a mostrar a stack
+    sendo alterada, que e exatamente o que se quer ver antes de trocar o
+    coletor. Versoes: https://github.com/DataDog/datadog-serverless-functions/releases
   EOT
   type        = string
-  default     = "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/latest.yaml"
+  default     = "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/5.4.13.yaml"
 }
 
 variable "datadog_notification_targets" {

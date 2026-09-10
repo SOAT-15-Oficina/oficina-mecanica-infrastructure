@@ -140,6 +140,14 @@ jobs:
       # apply morre no precondition -- e o atalho obvio para destravar
       # (`datadog_enabled = false`) DESTRUIRIA paineis, monitores e o historico
       # de silenciamento deles. Melhor falhar aqui, antes de qualquer plano.
+      #
+      # O segundo teste, do prefixo REPLACE_ME, existe porque os dois secrets
+      # foram CRIADOS antes de haver conta no Datadog, com um valor de espera.
+      # Sem ele o guard-rail passaria (o secret existe, nao esta vazio) e o
+      # apply so quebraria la na frente, ao falar com a API do Datadog -- depois
+      # de ja ter criado o segredo no Secrets Manager e a stack do Forwarder.
+      # Um secret preenchido com placeholder e ausencia disfarcada, e o lugar de
+      # descobrir isso e aqui.
       - name: Check Datadog credentials
         env:
           DD_ENABLED: ${{ vars.TF_VAR_DATADOG_ENABLED }}
@@ -158,6 +166,17 @@ jobs:
             echo "Cadastre-os, ou desligue o Datadog neste ambiente com a"
             echo "variable TF_VAR_DATADOG_ENABLED=false (ciente de que isso"
             echo "destroi os paineis e monitores ja criados)."
+            exit 1
+          fi
+          placeholder=""
+          case "$DD_API_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_API_KEY" ;; esac
+          case "$DD_APP_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_APP_KEY" ;; esac
+          if [ -n "$placeholder" ]; then
+            echo "Secrets ainda com o valor de espera:$placeholder"
+            echo "Crie a conta no Datadog e substitua o placeholder pela chave real:"
+            echo "  gh secret set DATADOG_API_KEY --repo \$GITHUB_REPOSITORY --env <ambiente> --body '<chave>'"
+            echo "A de API fica em Organization Settings > API Keys; a de aplicacao,"
+            echo "em Organization Settings > Application Keys. Sao coisas diferentes."
             exit 1
           fi
 

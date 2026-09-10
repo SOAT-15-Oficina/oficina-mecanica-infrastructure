@@ -106,33 +106,46 @@ dashboard, não a instrumentação.
 
 ## Plano
 
-**Estado da execução (2026-09-10).** As fases 2, 4 e 5 estão implementadas em
-`oficina-mecanica-infrastructure`; as fases 1 e 3 pertencem a
-`oficina-mecanica-monolith` e `oficina-mecanica-serverless` e continuam
-pendentes.
+**Estado da execução (2026-09-10).** As cinco fases estão escritas. As que moram
+neste repositório estão nesta branch; as das aplicações estão em PR aberto nos
+repositórios delas.
 
 | Fase | Onde | Estado |
 |---|---|---|
-| 1 — logs estruturados JSON com `request_id` | monolith, serverless | pendente |
+| 1 — logs estruturados JSON com `request_id` | *parameter mapping* aqui; `slog` em [monolith#4][pr-mono] e [serverless#4][pr-lambda] | **feito**, em revisão |
 | 2 — coleta (agente, Forwarder, integração AWS) | `ephemeral/datadog.tf`, `persistent/datadog.tf` | **feito** |
-| 3 — instrumentação HTTP e APM na aplicação | monolith | pendente |
+| 3 — instrumentação HTTP e APM na aplicação | [monolith#4][pr-mono] | **feito**, em revisão |
 | 4 — dashboards como código | `persistent/datadog_dashboard_*.tf` | **feito** |
 | 5 — alertas | `persistent/datadog_monitors.tf` | **feito** |
 
+[pr-mono]: https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/pull/4
+[pr-lambda]: https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless/pull/4
+
 A ordem não é acidental, e a consequência é literal: painéis e alertas **existem
-e ficam em zero** até a fase 1 entregar os campos que eles consultam. É o estado
-correto — infraestrutura pronta esperando o dado, e não configuração quebrada.
+e ficam em zero** até a fase 1 chegar em produção com os campos que eles
+consultam. É o estado correto — infraestrutura pronta esperando o dado, e não
+configuração quebrada.
 
-O *parameter mapping* do API Gateway (fase 1) é a única parte da fundação que
-mora neste repositório e ainda não foi feita: sem ele o `$context.requestId` não
-chega à aplicação como header.
+A parte da fase 1 que mora neste repositório é o *parameter mapping* do API
+Gateway, em `ephemeral/apigateway_routes.tf`: sem ele o `$context.requestId` não
+chega à aplicação como header, e os dois lados do rastro continuariam existindo
+sem nada em comum para juntá-los.
 
-### Fase 1 — Fundação (pré-requisito de tudo)
+### Fase 1 — Fundação (pré-requisito de tudo) ✅
 
 Logs estruturados JSON com `request_id` propagado da borda, conforme
 [ADR-0011](../adr/0011-logs-estruturados-com-correlacao.md). Sem isso, qualquer
-backend recebe texto livre e nenhuma correlação é possível. Inclui o *parameter
-mapping* no API Gateway que injeta `$context.requestId` como header.
+backend recebe texto livre e nenhuma correlação é possível.
+
+- *Parameter mapping* no API Gateway injetando `$context.requestId` como header
+  (`ephemeral/apigateway_routes.tf`). Só na integração HTTP_PROXY: integração
+  `AWS_PROXY` não aceita parameter mapping, e a Lambda não precisa — ela lê o
+  mesmo valor em `RequestContext.RequestID`.
+- `DD_ENV` e `DD_SERVICE` na Lambda (`ephemeral/lambda.tf`), fora do
+  `datadog_enabled`: log estruturado com `env` e `service` é útil com ou sem
+  Datadog, e um campo que aparece só às vezes é pior que um campo que nunca
+  aparece.
+- `slog` com handler JSON nas duas aplicações, nos PRs acima.
 
 ### Fase 2 — Coleta ✅
 
@@ -156,11 +169,15 @@ Datadog assinaria sozinho os log groups que *ele* julgasse relevantes numa conta
 que hospeda outro projeto. As assinaturas são `aws_cloudwatch_log_subscription_filter`
 explícitos, visíveis no plano.
 
-### Fase 3 — Instrumentação da aplicação
+### Fase 3 — Instrumentação da aplicação ✅
 
-Middleware de métricas no Fiber: histograma de duração por rota e método,
-contador por status. Traço por requisição, carregando `request_id` como tag —
-assim log e trace se encontram.
+Middleware no Fiber: linha de acesso com duração por rota e status (é dela que
+sai `oficina.http_request_duration`), e traço por requisição carregando
+`request_id` como tag — assim log e trace se encontram.
+
+Uma descoberta da implementação: **não existe contrib oficial do `dd-trace-go`
+para o Fiber v3**, só para o v2. O span sai do próprio middleware, o que é ~40
+linhas e evita segurar a versão do Fiber esperando o contrib.
 
 ### Fase 4 — Dashboards, como código Terraform ✅
 

@@ -28,7 +28,7 @@ Três limitações concretas:
 O access log do API Gateway **já** é JSON e já carrega `$context.requestId` — o
 elo existe na borda e se perde ao entrar na aplicação.
 
-## Decisão proposta
+## Decisão
 
 **Adotar `log/slog` com handler JSON em todos os componentes Go, e propagar um
 identificador de correlação da borda até a última linha de log.**
@@ -46,11 +46,19 @@ Assim o identificador que aparece no access log do gateway é o mesmo que a
 aplicação recebe. Se o header vier ausente (chamada interna, teste local), a
 aplicação gera um UUID.
 
+`append:` e não `overwrite:` tem uma consequência do lado da aplicação: se o
+cliente mandou um `X-Request-Id`, ele continua na requisição, **antes** do valor
+do gateway. **A aplicação usa o último valor**, que é o único que ela sabe ter
+nascido na borda. Header de cliente é entrada não confiável e não pode virar
+chave de correlação — nem chegar a um campo de log sem passar por filtro.
+
 ### 2. Middleware no monolito
 
 Primeiro middleware da cadeia, antes de `Auth`:
 
-- lê `X-Request-Id` (ou gera);
+- lê o **último** `X-Request-Id` (ou gera), e o descarta se ele não passar por
+  um filtro de caracteres — o valor vai para header de resposta, tag de traço e
+  toda linha de log da requisição;
 - coloca um `*slog.Logger` já decorado no `context.Context` da requisição;
 - devolve o mesmo id no header da resposta;
 - ao final, emite uma linha de acesso com método, rota, status e duração.
@@ -69,14 +77,25 @@ Campos fixos, iguais nos dois runtimes:
 | `version` | SHA do commit | `16c3616` |
 | `request_id` | header ou gerado | `Kx9...` |
 | `route`, `method`, `status`, `duration_ms` | linha de acesso | `/work-orders` |
+| `http.status_code` | linha de acesso, ao lado de `status` (ver abaixo) | `200` |
 | `user`, `role` | claims do JWT, quando houver | `admin` |
 | `work_order_id`, `work_order_code` | quando a operação tiver uma OS | — |
 | `event` | nome do evento de domínio (§4) | `work_order.created` |
+| `decision` | resultado de `approval.decided` | `approved`, `rejected` |
 | `integration` | dependência externa envolvida, em `level=ERROR` | `ses`, `rds`, `apigateway` |
 | `error` | `err.Error()` em `level=ERROR` | — |
 
 **Nunca** entram em log: `password`, `password_hash`, o token, o segredo JWT, e
 o `document` do cliente (CPF/CNPJ é dado pessoal — usa-se `customer_id`).
+
+**Por que `http.status_code` existe além de `status`.** No pré-processamento de
+log JSON, o Datadog procura o *nível* do log numa lista de atributos que começa
+por `status` — o mesmo nome que a linha de acesso usa para o status HTTP. Se ele
+o consumir, `@status` desaparece do log e o `group_by` de
+`oficina.http_request_duration` fica sem a dimensão, sem nada quebrar
+visivelmente. `http.status_code` é o atributo padrão do Datadog para status
+HTTP: emitindo os dois, a correção passa a ser uma linha de Terraform em vez de
+um novo deploy das duas aplicações.
 
 ### 4. Eventos de domínio explícitos
 

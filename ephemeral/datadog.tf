@@ -53,6 +53,11 @@ locals {
   # ao pipeline do -monolith (ver o ignore_changes do Deployment).
   dd_env     = var.environment
   dd_service = "monolith"
+
+  # O nome de servico da Lambda de auth (ephemeral/lambda.tf a injeta como
+  # DD_SERVICE). Nome proprio, e nao "monolith": e por `@service` que os paineis
+  # e as metricas de log separam as duas origens.
+  dd_service_lambda = "auth-lambda"
 }
 
 # Rotulos e anotacoes que o Deployment da API (k8s.tf) aplica no template do

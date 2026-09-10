@@ -23,6 +23,11 @@ resource "aws_apigatewayv2_integration" "auth" {
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.auth.invoke_arn
   payload_format_version = "2.0"
+
+  # Sem `request_parameters` aqui: parameter mapping so existe em integracao
+  # HTTP_PROXY. A Lambda nao precisa dele -- ela le o mesmo identificador em
+  # RequestContext.RequestID, que E o `$context.requestId` do access log
+  # (ADR-0011, secao 5).
 }
 
 resource "aws_apigatewayv2_route" "auth" {
@@ -42,6 +47,26 @@ resource "aws_apigatewayv2_integration" "api" {
   integration_uri    = aws_lb_listener.http.arn
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.main.id
+
+  # O ELO QUE FECHA A CORRELACAO BORDA <-> APLICACAO (ADR-0011).
+  #
+  # `$context.requestId` e o mesmo identificador que o access log do gateway
+  # registra (ver o `format` do access_log_settings em persistent/apigateway.tf).
+  # Injetado como header, ele chega ao monolito, que o adota como `request_id` de
+  # toda linha de log da requisicao. Uma consulta por esse valor no Datadog passa
+  # a devolver o rastro inteiro: access log da borda + linhas de dentro do pod.
+  #
+  # Sem isto, o middleware da aplicacao geraria um UUID proprio a cada
+  # requisicao -- os dois lados continuariam existindo, mas sem nada em comum
+  # para juntar um ao outro.
+  #
+  # `append:` e nao `overwrite:`: se o cliente mandou um X-Request-Id, ele
+  # continua visivel, e o valor do gateway entra ao final da lista. A aplicacao
+  # fica com o ULTIMO, que e o unico que ela sabe ter nascido na borda -- header
+  # de cliente e entrada nao confiavel e nao pode virar chave de correlacao.
+  request_parameters = {
+    "append:header.x-request-id" = "$context.requestId"
+  }
 }
 
 # Rota coringa: tudo que nao casa com uma rota explicita vai para o monolito.

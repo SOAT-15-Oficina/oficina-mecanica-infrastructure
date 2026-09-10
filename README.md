@@ -315,6 +315,7 @@ sobreviver ao ciclo fica em `persistent/`; o coletor, que é descartável, fica 
 | `persistent/datadog_dashboard_operacional.tf` · `_negocio.tf` | os dois painéis |
 | `persistent/datadog_monitors.tf` | os nove alertas e o teste sintético |
 | `ephemeral/datadog.tf` | agente no cluster + assinatura do log da Lambda |
+| `ephemeral/apigateway_routes.tf` | *parameter mapping* que injeta `$context.requestId` como header |
 | `ephemeral/k8s.tf` | `DD_ENV`/`DD_SERVICE`, `DD_AGENT_HOST` e as tags do pod |
 
 ### De onde vem cada sinal
@@ -397,6 +398,13 @@ Tudo acima consulta campos do JSON do `slog`, na taxonomia da
 monolito e a Lambda não os emitirem, as métricas existem e ficam em zero** — que
 é o estado correto, e não uma falha de configuração.
 
+O `slog` das duas aplicações está em PR aberto:
+[monolith#4](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/pull/4)
+e
+[serverless#4](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless/pull/4).
+O elo do lado da borda — o *parameter mapping* que injeta `$context.requestId`
+como header — mora aqui, em `ephemeral/apigateway_routes.tf`.
+
 | Campo | Quem consome |
 |---|---|
 | `@event` | métricas de negócio e os dois alertas de log |
@@ -409,8 +417,10 @@ monolito e a Lambda não os emitirem, as métricas existem e ficam em zero** —
 
 ### Ligar num ambiente
 
-Dois secrets no **GitHub Environment** correspondente (`production` ou
-`homolog`), ao lado de `AWS_DEPLOY_ROLE_ARN`:
+`DATADOG_API_KEY` e `DATADOG_APP_KEY` são secrets de **GitHub Environment**
+(`production` e `homolog`), ao lado de `AWS_DEPLOY_ROLE_ARN`. **Os quatro já
+existem, com o valor de espera `REPLACE_ME_…`** — falta criar a conta e
+substituí-los:
 
 ```bash
 gh secret set DATADOG_API_KEY --repo SOAT-15-Oficina/oficina-mecanica-infrastructure \
@@ -419,10 +429,24 @@ gh secret set DATADOG_APP_KEY --repo SOAT-15-Oficina/oficina-mecanica-infrastruc
   --env production --body "<chave de aplicação>"
 ```
 
-Se a organização não estiver em `datadoghq.com`, some a variable
-`TF_VAR_DATADOG_SITE`. O CI aborta **antes do plano** quando as chaves faltam:
-o atalho óbvio para destravar (`datadog_enabled = false`) destruiria painéis e
-monitores junto com o histórico de silenciamento deles.
+São coisas diferentes: a de API (*Organization Settings → API Keys*) autoriza
+**enviar** dado e é a que vai para o Secrets Manager, lida pelo agente e pelo
+Forwarder; a de aplicação (*Organization Settings → Application Keys*) autoriza
+**escrever configuração** — painel, monitor, integração — e só o Terraform a usa.
+
+O CI aborta **antes do plano** em dois casos: quando as chaves faltam e quando
+elas ainda carregam o `REPLACE_ME`. O segundo teste existe porque um secret
+preenchido com placeholder é ausência disfarçada: sem ele o guard-rail passaria
+e o `apply` só quebraria ao falar com a API do Datadog, depois de já ter criado
+o segredo no Secrets Manager e a stack do Forwarder.
+
+Falhar aqui, e não com `datadog_enabled = false`, é deliberado: esse atalho
+destruiria painéis e monitores junto com o histórico de silenciamento deles.
+
+A variable `TF_VAR_DATADOG_SITE` existe no repositório com `datadoghq.com`.
+Mude-a se a organização for de outra região (uma conta criada na UE é
+`datadoghq.eu`). **Errar isso não dá erro visível**: o agente sobe, envia para o
+site errado e os painéis ficam vazios.
 
 Para subir o ambiente sem Datadog, a variable `TF_VAR_DATADOG_ENABLED=false` —
 ciente da mesma consequência, se já houver algo criado.
