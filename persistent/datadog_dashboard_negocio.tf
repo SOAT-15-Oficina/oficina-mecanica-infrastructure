@@ -1,5 +1,3 @@
-# Painel de NEGOCIO. Preambulo e locais compartilhados em datadog_dashboards_locals.tf.
-
 resource "datadog_dashboard" "business" {
   count = local.datadog_enabled ? 1 : 0
 

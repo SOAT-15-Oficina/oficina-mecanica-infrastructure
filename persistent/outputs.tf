@@ -68,9 +68,6 @@ output "datadog" {
     Os dois paineis abrem em https://app.<site>/dashboard/<id>.
   EOT
 
-  # Todos os campos como string, e os dois ramos do condicional com as MESMAS
-  # chaves: um output cujo tipo muda conforme uma variavel nao e consumivel por
-  # nada -- nem por `terraform output -json`, nem por um passo de CI.
   value = {
     enabled               = local.datadog_enabled ? "true" : "false"
     site                  = local.datadog_enabled ? var.datadog_site : ""

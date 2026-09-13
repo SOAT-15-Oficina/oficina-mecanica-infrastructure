@@ -100,12 +100,6 @@ jobs:
             exit 1
           fi
 
-
-      # Mesma armadilha das identidades do SES, com outro nome. Se as chaves do
-      # Datadog sumirem, o default de `datadog_enabled` continua `true` e o
-      # apply morre no precondition -- e o atalho obvio para destravar
-      # (`datadog_enabled = false`) DESTRUIRIA paineis, monitores e o historico
-      # de silenciamento deles. Melhor falhar aqui, antes de qualquer plano.
       - name: Check Datadog credentials
         env:
           DD_ENABLED: ${{ vars.TF_VAR_DATADOG_ENABLED }}

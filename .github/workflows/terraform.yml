@@ -134,20 +134,6 @@ jobs:
             exit 1
           fi
 
-
-      # Mesma armadilha das identidades do SES, com outro nome. Se as chaves do
-      # Datadog sumirem, o default de `datadog_enabled` continua `true` e o
-      # apply morre no precondition -- e o atalho obvio para destravar
-      # (`datadog_enabled = false`) DESTRUIRIA paineis, monitores e o historico
-      # de silenciamento deles. Melhor falhar aqui, antes de qualquer plano.
-      #
-      # O segundo teste, do prefixo REPLACE_ME, existe porque os dois secrets
-      # foram CRIADOS antes de haver conta no Datadog, com um valor de espera.
-      # Sem ele o guard-rail passaria (o secret existe, nao esta vazio) e o
-      # apply so quebraria la na frente, ao falar com a API do Datadog -- depois
-      # de ja ter criado o segredo no Secrets Manager e a stack do Forwarder.
-      # Um secret preenchido com placeholder e ausencia disfarcada, e o lugar de
-      # descobrir isso e aqui.
       - name: Check Datadog credentials
         env:
           DD_ENABLED: ${{ vars.TF_VAR_DATADOG_ENABLED }}

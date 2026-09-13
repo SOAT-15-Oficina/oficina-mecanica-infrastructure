@@ -7,11 +7,6 @@ locals {
     ManagedBy   = "terraform"
     Layer       = "ephemeral"
 
-    # Duplica `Environment` de proposito. O Datadog importa as tags da AWS como
-    # vem, entao `Environment` viraria `environment:prod` -- enquanto o agente
-    # no cluster e o APM publicam `env:prod`. Sem esta tag, uma consulta que
-    # cruza metrica de RDS com metrica de pod precisaria de dois filtros
-    # diferentes para dizer a mesma coisa.
     env = var.environment
   }
 

@@ -119,10 +119,6 @@ variable "manage_ses_identities" {
   default     = null
 }
 
-# --- Observabilidade (Datadog) -----------------------------------------------
-#
-# Ver docs/rfc/0004-estrategia-de-observabilidade.md e persistent/datadog.tf.
-
 variable "datadog_enabled" {
   description = <<-EOT
     Se esta stack cria os recursos do Datadog: paineis, monitores, metricas de

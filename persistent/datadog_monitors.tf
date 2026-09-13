@@ -1,23 +1,4 @@
-# Alertas.
-#
-# A fase exige nominalmente um -- "alertas para falhas no processamento de ordens
-# de servico" -- e os outros oito existem porque um alerta sozinho nao diz se o
-# sistema esta de pe. Todos vem da tabela de alertas da RFC-0004.
-#
-# TRES REGRAS QUE VALEM PARA O ARQUIVO INTEIRO:
-#
-#   1. Alerta sobre EVENTO NOMEADO, nunca sobre texto de mensagem. `@event:...`
-#      sobrevive a refatoracao; `msg:"falha ao enviar"` quebra nela.
-#   2. `notify_no_data = false` na maioria. O ambiente sobe e desce por design
-#      (bring-up/tear-down): ausencia de dado e o estado normal de um ambiente
-#      desligado, e alertar sobre isso treina o time a ignorar alerta.
-#      A excecao esta marcada onde ela existe.
-#   3. Severidade no campo `priority`, nao so no texto: 1 e critico, 5 e ruido
-#      tolerado. E o que permite rotear diferente depois sem reescrever a query.
-
 locals {
-  # Rodape comum. Um alerta que nao diz onde olhar vira um alerta que alguem
-  # silencia.
   dd_monitor_footer = <<-EOT
 
     Ambiente: ${var.environment} | Painel: ${var.project} [${var.environment}] Operacional
@@ -26,14 +7,6 @@ locals {
   EOT
 }
 
-# --- O alerta exigido pela fase -----------------------------------------------
-#
-# "Falhas no processamento de ordens de servico". Duas coisas o disparam: uma
-# transicao de status recusada (a maquina de estados barrou algo) e qualquer
-# ERROR que carregue um `work_order_id` (a operacao explodiu no meio).
-#
-# Repare que a query nao menciona nenhuma mensagem. Ela pergunta pelos eventos
-# da taxonomia da ADR-0011, que e o motivo de eles terem nome proprio.
 resource "datadog_monitor" "work_order_processing_failure" {
   count = local.datadog_enabled ? 1 : 0
 
@@ -66,8 +39,6 @@ resource "datadog_monitor" "work_order_processing_failure" {
   tags           = concat(local.dd_tags, ["signal:work-order"])
 }
 
-# --- Integracoes --------------------------------------------------------------
-
 resource "datadog_monitor" "budget_send_failed" {
   count = local.datadog_enabled ? 1 : 0
 
@@ -96,11 +67,6 @@ resource "datadog_monitor" "budget_send_failed" {
   tags           = concat(local.dd_tags, ["signal:integration"])
 }
 
-# --- Disponibilidade ----------------------------------------------------------
-#
-# O teste sintetico e a unica coisa aqui que olha o sistema DE FORA. Metrica de
-# dentro do cluster nao enxerga CloudFront quebrado, DNS errado nem API Gateway
-# sem rota -- e os tres derrubam o sistema para o usuario com o cluster verde.
 resource "datadog_synthetics_test" "ping" {
   count = local.datadog_enabled ? 1 : 0
 
@@ -109,19 +75,14 @@ resource "datadog_synthetics_test" "ping" {
   subtype = "http"
   status  = "live"
 
-  # sa-east-1 e a regiao do ambiente: o teste mede o que o usuario brasileiro
-  # sente, sem somar a latencia de atravessar o Atlantico duas vezes.
   locations = ["aws:sa-east-1"]
 
-  # `check:api-ping` e a tag por onde os paineis encontram este teste.
   tags = concat(local.dd_tags, ["check:api-ping"])
 
   request_definition {
     method = "GET"
     url    = "https://${aws_cloudfront_distribution.site.domain_name}/api/ping"
 
-    # Acima do timeout da readiness probe (3s) e bem abaixo do intervalo: um
-    # /ping lento e um sintoma, nao um falso positivo.
     timeout = 10
   }
 
@@ -131,8 +92,6 @@ resource "datadog_synthetics_test" "ping" {
     target   = "200"
   }
 
-  # O /ping do monolito checa o banco de verdade antes de responder. Verificar o
-  # corpo, e nao so o 200, e o que separa "a API respondeu" de "a API funciona".
   assertion {
     type     = "body"
     operator = "contains"
@@ -146,16 +105,11 @@ resource "datadog_synthetics_test" "ping" {
   }
 
   options_list {
-    # 5 minutos: com 1 minuto o trial de 14 dias consome a cota de execucoes
-    # sinteticas antes da apresentacao.
     tick_every = 300
 
     monitor_name     = "[${var.environment}] API publica indisponivel"
     monitor_priority = 1
 
-    # "Falhando em 2 verificacoes seguidas" (RFC-0004): uma tentativa imediata
-    # de repeticao absorve o soluco de rede; o alerta so sai se a segunda
-    # tambem falhar.
     retry {
       count    = 1
       interval = 300
@@ -176,16 +130,12 @@ resource "datadog_synthetics_test" "ping" {
   EOT
 }
 
-# --- Latencia e erro ----------------------------------------------------------
-
 resource "datadog_monitor" "api_latency" {
   count = local.datadog_enabled ? 1 : 0
 
   name = "[${var.environment}] Latencia da API degradada (p95 > 1s)"
   type = "metric alert"
 
-  # `percentile()` porque a metrica e uma distribuicao: com `avg()` o p95
-  # perderia o sentido ao ser mediado entre janelas.
   query = "percentile(last_10m):p95:oficina.http_request_duration{env:${local.dd_env},service:${local.dd_services.api}} > 1000"
 
   message = <<-EOT
@@ -205,8 +155,6 @@ resource "datadog_monitor" "api_latency" {
 
   priority = 3
 
-  # A janela precisa estar cheia: alertar sobre 2 minutos de dado logo apos um
-  # bring-up daria alarme em todo ciclo.
   require_full_window = true
   notify_no_data      = false
   include_tags        = true
@@ -219,9 +167,6 @@ resource "datadog_monitor" "api_error_rate" {
   name = "[${var.environment}] Taxa de 5xx acima de 1%"
   type = "metric alert"
 
-  # Do API Gateway, e nao da aplicacao, de proposito: aqui entram tambem os 5xx
-  # que a aplicacao nunca viu -- integracao fora do ar, VPC Link quebrado,
-  # nenhum target saudavel.
   query = "sum(last_5m):( sum:aws.apigateway.5xx{apiid:${local.dd_api_id}}.as_count() / sum:aws.apigateway.count{apiid:${local.dd_api_id}}.as_count() ) * 100 > 1"
 
   message = <<-EOT
@@ -243,8 +188,6 @@ resource "datadog_monitor" "api_error_rate" {
   include_tags   = true
   tags           = concat(local.dd_tags, ["signal:errors"])
 }
-
-# --- Cluster ------------------------------------------------------------------
 
 resource "datadog_monitor" "hpa_at_ceiling" {
   count = local.datadog_enabled ? 1 : 0
@@ -281,9 +224,6 @@ resource "datadog_monitor" "pod_restarts" {
   name = "[${var.environment}] Pod reiniciando"
   type = "metric alert"
 
-  # `change()` e nao valor absoluto: o contador do kube-state-metrics e
-  # acumulado desde a criacao do pod, entao o valor bruto so cresce. O que
-  # interessa e o DELTA na janela.
   query = "change(max(last_15m),last_15m):max:kubernetes_state.container.restarts{env:${local.dd_env},kube_namespace:${local.dd_kube_namespace}} by {pod_name} >= 3"
 
   message = <<-EOT
@@ -305,8 +245,6 @@ resource "datadog_monitor" "pod_restarts" {
   include_tags   = true
   tags           = concat(local.dd_tags, ["signal:stability"])
 }
-
-# --- Banco de dados -----------------------------------------------------------
 
 resource "datadog_monitor" "database_connections" {
   count = local.datadog_enabled ? 1 : 0
@@ -367,15 +305,6 @@ resource "datadog_monitor" "database_storage" {
   tags           = concat(local.dd_tags, ["signal:database"])
 }
 
-# --- Coleta -------------------------------------------------------------------
-#
-# O unico monitor que ALERTA na ausencia de dado, e o unico que faz sentido
-# assim: se o agente parar de reportar, todos os outros ficam em silencio e o
-# silencio parece saude. Este e o alerta sobre o proprio alerta.
-#
-# Fica desligado por padrao porque num ambiente que sobe e desce ele dispara em
-# todo tear-down. Ligue-o quando o ambiente for para valer, ou quando a
-# apresentacao exigir um ambiente continuamente de pe.
 resource "datadog_monitor" "agent_reporting" {
   count = local.datadog_enabled && var.datadog_alert_on_missing_agent ? 1 : 0
 
@@ -384,9 +313,6 @@ resource "datadog_monitor" "agent_reporting" {
 
   query = "avg(last_10m):avg:kubernetes.cpu.usage.total{env:${local.dd_env},kube_namespace:${local.dd_kube_namespace}} <= 0"
 
-  # `is_no_data` e um bloco de primeiro nivel, irmao de `is_alert` -- nao um
-  # aninhado dentro dele. Aninhado, o texto nunca renderiza, e o alerta chega
-  # sem dizer o que aconteceu.
   message = <<-EOT
     {{#is_no_data}}
     Nenhuma metrica do cluster de ${var.environment} chegou nos ultimos 15 minutos.

@@ -1,5 +1,3 @@
-# Painel OPERACIONAL. Preambulo e locais compartilhados em datadog_dashboards_locals.tf.
-
 resource "datadog_dashboard" "operational" {
   count = local.datadog_enabled ? 1 : 0
 
@@ -9,9 +7,6 @@ resource "datadog_dashboard" "operational" {
   reflow_type = "auto"
   tags        = local.dd_tags
 
-  # O painel e criado por ambiente, mas o seletor continua util: um mesmo
-  # painel aberto lado a lado em `prod` e `homolog` compara os dois durante uma
-  # promocao.
   template_variable {
     name    = "env"
     prefix  = "env"
@@ -79,8 +74,6 @@ resource "datadog_dashboard" "operational" {
             label = "ms"
           }
 
-          # 1s e o limiar do monitor de latencia degradada. A linha no grafico e
-          # o que evita a pergunta "isso ai e ruim?" durante a analise ao vivo.
           marker {
             display_type = "warning dashed"
             value        = "y = 1000"
@@ -230,8 +223,6 @@ resource "datadog_dashboard" "operational" {
           title       = "CPU por pod, contra o limite"
           show_legend = true
 
-          # nanocores -> cores. O limite do container e 500m; o grafico so
-          # significa alguma coisa se as duas series estiverem na mesma unidade.
           request {
             q            = "avg:kubernetes.cpu.usage.total{$env,kube_namespace:${local.dd_kube_namespace}} by {pod_name} / 1000000000"
             display_type = "area"
@@ -460,9 +451,6 @@ resource "datadog_dashboard" "operational" {
           query   = "env:${var.environment} status:error"
           columns = ["service", "@request_id", "@route", "@status", "@error"]
 
-          # `request_id` primeiro na leitura porque e por ele que se pula para o
-          # rastro completo -- inclusive o access log do gateway, que carrega o
-          # mesmo valor (ADR-0011).
           sort {
             column = "time"
             order  = "desc"

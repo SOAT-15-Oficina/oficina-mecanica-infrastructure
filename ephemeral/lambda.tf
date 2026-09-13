@@ -84,20 +84,6 @@ resource "aws_lambda_function" "auth" {
       DATABASE_SECRET_ID = data.aws_ssm_parameter.database_secret_arn.value
       JWT_SECRET_ID      = data.aws_ssm_parameter.jwt_secret_arn.value
 
-      # --- Observabilidade ---------------------------------------------------
-      #
-      # O mesmo unified service tagging do monolito (ver o ConfigMap em k8s.tf),
-      # com o outro nome de servico: e por `@service` que os paineis separam o
-      # que veio da Lambda do que veio dos pods.
-      #
-      # Sao os dois unicos campos que a Lambda precisa do ambiente. Ela nao fala
-      # com o agente -- o log dela sai no CloudWatch e chega ao Datadog pelo
-      # Forwarder (ver a assinatura em datadog.tf) -- entao aqui nao ha
-      # DD_AGENT_HOST nem porta de traco.
-      #
-      # Fora do `if datadog_enabled` de proposito: log estruturado com `env` e
-      # `service` e util com ou sem Datadog, e um campo que aparece so as vezes
-      # e pior que um campo que nunca aparece.
       DD_ENV     = local.dd_env
       DD_SERVICE = local.dd_service_lambda
     }
