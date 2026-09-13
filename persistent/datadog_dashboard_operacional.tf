@@ -5,7 +5,6 @@ resource "datadog_dashboard" "operational" {
   description = "Latencia, recursos do cluster, healthcheck e uptime. Definido em persistent/datadog_dashboard_operacional.tf."
   layout_type = "ordered"
   reflow_type = "auto"
-  tags        = local.dd_tags
 
   template_variable {
     name    = "env"

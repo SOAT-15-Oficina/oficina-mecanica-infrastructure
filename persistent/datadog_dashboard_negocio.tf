@@ -5,7 +5,6 @@ resource "datadog_dashboard" "business" {
   description = "Volume de ordens de servico, tempo por status e falhas de integracao. Definido em persistent/datadog_dashboard_negocio.tf."
   layout_type = "ordered"
   reflow_type = "auto"
-  tags        = local.dd_tags
 
   template_variable {
     name    = "env"
