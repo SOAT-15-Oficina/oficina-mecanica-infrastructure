@@ -51,3 +51,18 @@ variable "kube_namespace" {
   type        = string
   default     = "workshop"
 }
+
+variable "datadog_chart_version" {
+  description = <<-EOT
+    Versao do chart `datadog/datadog` (o agente dentro do cluster).
+
+    Pinada, e nao `latest`: o chart publica varias versoes por semana, e um
+    bring-up que instalasse a mais nova faria de cada ciclo um upgrade nao
+    revisado do agente.
+
+    Se ha ou nao Datadog neste ambiente NAO se decide aqui -- vem do SSM, que a
+    camada persistente publica (ver ephemeral/datadog.tf).
+  EOT
+  type        = string
+  default     = "3.244.0"
+}

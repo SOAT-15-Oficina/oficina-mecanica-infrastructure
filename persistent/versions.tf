@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    datadog = {
+      source  = "DataDog/datadog"
+      version = "~> 4.21"
+    }
   }
 
   # Bucket e tabela criados por ../bootstrap.

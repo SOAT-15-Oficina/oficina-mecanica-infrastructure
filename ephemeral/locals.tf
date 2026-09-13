@@ -6,6 +6,8 @@ locals {
     Environment = var.environment
     ManagedBy   = "terraform"
     Layer       = "ephemeral"
+
+    env = var.environment
   }
 
   ssm_prefix = "/${var.project}/${var.environment}"

@@ -117,6 +117,8 @@ flowchart TB
         P5[Secrets Manager]
         P6[Identidades SES]
         P7[SSM — parâmetros estáveis]
+        P8[Datadog: painéis, monitores,<br/>métricas de log, integração AWS]
+        P9[Forwarder de logs do CloudWatch]
     end
 
     subgraph ES ["ephemeral/ — ~US$ 0,30/hora, bring-up manual"]
@@ -128,6 +130,7 @@ flowchart TB
         E6[VPC Link + rotas do gateway]
         E7[Objetos K8s: ns, ConfigMap, Secret, Deployment, Service, HPA]
         E8[SSM — parâmetros do ciclo]
+        E9[Agente Datadog: DaemonSet + cluster agent]
     end
 
     BS -.guarda o state de.-> PS
@@ -135,6 +138,8 @@ flowchart TB
     PS -.API id, ECR, segredos.-> ES
     P7 --> APPS[Pipelines dos outros 3 repositórios]
     E8 --> APPS
+    E9 -.métricas, logs e traces.-> P8
+    P9 -.access log do gateway e da Lambda.-> P8
 ```
 
 O corte é por **ciclo de vida**, não por tipo de recurso — o racional está na
@@ -291,6 +296,166 @@ Os dois ambientes sobem e descem de forma independente: a chave de `concurrency`
 inclui o nome do ambiente, então mexer em homologação não segura produção na
 fila. Subir e derrubar o *mesmo* ambiente continuam serializados.
 
+## Observabilidade
+
+Implementada com **Datadog**, pela razão que a
+[RFC-0004](docs/rfc/0004-estrategia-de-observabilidade.md) isola: painel e
+alerta precisam **sobreviver ao `tear-down`**, e no Datadog eles são recursos de
+Terraform como qualquer outro. New Relic segue registrado como alternativa — a
+instrumentação não mudaria, só as definições de painel.
+
+O corte segue o mesmo princípio do resto do repositório: **o que precisa
+sobreviver ao ciclo fica em `persistent/`; o coletor, que é descartável, fica em
+`ephemeral/`.**
+
+| Arquivo | O que define |
+|---|---|
+| `persistent/datadog.tf` | chave no Secrets Manager, integração AWS, Forwarder de logs, contrato no SSM |
+| `persistent/datadog_metrics.tf` | métricas geradas a partir dos eventos de domínio no log |
+| `persistent/datadog_dashboard_operacional.tf` · `_negocio.tf` | os dois painéis |
+| `persistent/datadog_monitors.tf` | os nove alertas e o teste sintético |
+| `ephemeral/datadog.tf` | agente no cluster + assinatura do log da Lambda |
+| `ephemeral/apigateway_routes.tf` | *parameter mapping* que injeta `$context.requestId` como header |
+| `ephemeral/k8s.tf` | `DD_ENV`/`DD_SERVICE`, `DD_AGENT_HOST` e as tags do pod |
+
+### De onde vem cada sinal
+
+```mermaid
+flowchart LR
+    GW["API Gateway<br/>access log JSON"] --> FWD
+    LMB["Lambda de auth<br/>slog JSON"] --> FWD
+    FWD["Forwarder<br/>(persistente)"] --> DD
+    APP["Pods da API<br/>slog JSON + traces"] --> AG
+    K8S["cAdvisor +<br/>kube-state-metrics"] --> AG
+    AG["Agente DaemonSet<br/>(efêmero)"] --> DD
+    RDS[("RDS, ALB, SES,<br/>CloudFront")] --> INT
+    INT["Integração AWS<br/>(CloudWatch)"] --> DD
+    SYN["Teste sintético<br/>sa-east-1"] --> DD
+    DD[("Datadog")] --> D1["Painel operacional"]
+    DD --> D2["Painel de negócio"]
+    DD --> AL["9 alertas"]
+```
+
+Os dois caminhos existem porque nenhum sozinho cobre tudo: o agente enxerga o
+que roda **dentro** do cluster, a integração AWS e o Forwarder enxergam o que
+está **fora** dele. O access log do API Gateway está no segundo grupo, e é ele
+que carrega o `requestId` que a aplicação recebe como `X-Request-Id` — sem o
+Forwarder, o rastro de uma requisição começa já depois da borda.
+
+### Os dois painéis
+
+**Operacional** — uptime visto de fora, latência da borda e da aplicação
+(p50/p95/p99 por rota), respostas por classe de status, CPU e memória por pod
+contra os limites, réplicas do HPA contra o teto, pods por fase, reinícios,
+Lambda, RDS e um stream dos erros recentes.
+
+**Negócio** — os três que o enunciado da fase nomeia:
+
+| Painel | Como se calcula |
+|---|---|
+| Volume diário de ordens de serviço | `sum:oficina.work_order_created` — conferível contra `SELECT date(received_at), COUNT(*) FROM work_orders GROUP BY 1` |
+| Tempo médio de execução por status | `avg:oficina.work_order_stage_duration by {to}`, mais o p95 ao lado |
+| Erros e falhas nas integrações | `oficina.integration_error by {integration}`, mais 5xx do gateway, erros da Lambda e bounces do SES |
+
+Os três saem de **métricas de log**, e não de consulta a log: o Datadog conta o
+evento na ingestão e guarda só o número, com retenção de métrica (15 meses) em
+vez de retenção de log (dias). O log continua lá para a investigação.
+
+### Os alertas
+
+Nove, da tabela da RFC-0004. O primeiro é o exigido nominalmente pela fase:
+
+| Alerta | Condição | Prioridade |
+|---|---|---|
+| **Falha no processamento de OS** | `@event:work_order.transition_rejected` ou `ERROR` com `@work_order_id` em 5 min | 2 |
+| Falha no envio de orçamento | ≥ 1 `@event:budget.send_failed` em 15 min | 2 |
+| API pública indisponível | `/api/ping` falhando em 2 verificações seguidas | 1 |
+| Latência degradada | p95 > 1s por 10 min | 3 |
+| Taxa de 5xx | > 1% das requisições em 5 min | 2 |
+| HPA no teto | réplicas = 10 por 15 min | 3 |
+| Pod reiniciando | ≥ 3 reinícios em 15 min | 3 |
+| Conexões do banco | > 80% de `max_connections` | 2 |
+| Espaço livre do RDS | < 20% | 4 |
+
+Duas regras valem para todos, e as duas são consequência do ambiente subir e
+descer:
+
+- **`notify_no_data = false`.** Ausência de dado é o estado *normal* de um
+  ambiente desligado. Alertar sobre isso treina o time a ignorar alerta.
+- **A query pergunta por evento nomeado, nunca por texto de mensagem.**
+  `@event:budget.send_failed` sobrevive à refatoração; `msg:"falha ao enviar"`
+  quebra nela.
+
+Existe um décimo alerta — "agente sem reportar", o único que dispara *na*
+ausência de dado, cobrindo o silêncio dos outros. Fica desligado por padrão
+(`datadog_alert_on_missing_agent`) justamente porque dispararia em todo
+`tear-down`.
+
+### O que a aplicação precisa emitir
+
+Tudo acima consulta campos do JSON do `slog`, na taxonomia da
+[ADR-0011](docs/adr/0011-logs-estruturados-com-correlacao.md). **Enquanto o
+monolito e a Lambda não os emitirem, as métricas existem e ficam em zero** — que
+é o estado correto, e não uma falha de configuração.
+
+O `slog` das duas aplicações está em PR aberto:
+[monolith#4](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/pull/4)
+e
+[serverless#4](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless/pull/4).
+O elo do lado da borda — o *parameter mapping* que injeta `$context.requestId`
+como header — mora aqui, em `ephemeral/apigateway_routes.tf`.
+
+| Campo | Quem consome |
+|---|---|
+| `@event` | métricas de negócio e os dois alertas de log |
+| `@env`, `@service` | separação entre homologação e produção em todo painel |
+| `@request_id` | correlação com o access log do gateway |
+| `@duration_ms` + `@route` + `@status` | latência por rota e taxa de erro |
+| `@duration_ms` + `@from` + `@to` (em `work_order.status_changed`) | tempo médio por status |
+| `@integration` (em `status:error`) | painel de falhas de integração |
+| `@work_order_id` | alerta de falha no processamento |
+
+### Ligar num ambiente
+
+`DATADOG_API_KEY` e `DATADOG_APP_KEY` são secrets de **GitHub Environment**
+(`production` e `homolog`), ao lado de `AWS_DEPLOY_ROLE_ARN`. **Os quatro já
+existem, com o valor de espera `REPLACE_ME_…`** — falta criar a conta e
+substituí-los:
+
+```bash
+gh secret set DATADOG_API_KEY --repo SOAT-15-Oficina/oficina-mecanica-infrastructure \
+  --env production --body "<chave de API>"
+gh secret set DATADOG_APP_KEY --repo SOAT-15-Oficina/oficina-mecanica-infrastructure \
+  --env production --body "<chave de aplicação>"
+```
+
+São coisas diferentes: a de API (*Organization Settings → API Keys*) autoriza
+**enviar** dado e é a que vai para o Secrets Manager, lida pelo agente e pelo
+Forwarder; a de aplicação (*Organization Settings → Application Keys*) autoriza
+**escrever configuração** — painel, monitor, integração — e só o Terraform a usa.
+
+O CI aborta **antes do plano** em dois casos: quando as chaves faltam e quando
+elas ainda carregam o `REPLACE_ME`. O segundo teste existe porque um secret
+preenchido com placeholder é ausência disfarçada: sem ele o guard-rail passaria
+e o `apply` só quebraria ao falar com a API do Datadog, depois de já ter criado
+o segredo no Secrets Manager e a stack do Forwarder.
+
+Falhar aqui, e não com `datadog_enabled = false`, é deliberado: esse atalho
+destruiria painéis e monitores junto com o histórico de silenciamento deles.
+
+A variable `TF_VAR_DATADOG_SITE` existe no repositório com `datadoghq.com`.
+Mude-a se a organização for de outra região (uma conta criada na UE é
+`datadoghq.eu`). **Errar isso não dá erro visível**: o agente sobe, envia para o
+site errado e os painéis ficam vazios.
+
+Para subir o ambiente sem Datadog, a variable `TF_VAR_DATADOG_ENABLED=false` —
+ciente da mesma consequência, se já houver algo criado.
+
+**A integração AWS pertence à conta, não ao ambiente** — mesma armadilha das
+identidades do SES. Só produção a cria (`manage_datadog_aws_integration`);
+homologação não perde nada, porque as métricas chegam com a tag `env` de cada
+recurso.
+
 ## Decisões que a estrutura carrega
 
 ### O ALB é do Terraform, não de um Ingress
@@ -418,6 +583,17 @@ fora de TLS — e por isso a role de infraestrutura é a única que o lê.
 
 O JWT secret tem **dois leitores**: a Lambda assina, o monolito valida.
 
+A **chave de API do Datadog** segue o mesmo caminho, e por um motivo concreto: o
+agente dentro do cluster precisa lê-la em tempo de execução, e o Forwarder a lê
+direto do ARN. Ela entra por `TF_VAR_datadog_api_key` (secret do GitHub
+Environment) e nunca aparece em `values` do Helm — o chart recebe o *nome* de um
+`Secret` já existente, porque valor passado por `--set` fica legível no release
+para qualquer um com acesso ao namespace.
+
+A **chave de aplicação** (`datadog_app_key`) é outra coisa: ela autoriza ler e
+escrever *configuração* — painel, monitor, integração. Só o Terraform a usa, e
+ela não entra no cluster.
+
 ## Desenvolvimento local
 
 ```bash
@@ -445,8 +621,17 @@ Para trabalhar em um repositório isolado, cada um tem seu próprio
 |---|---|
 | Camada persistente, parada | US$ 1/mês por ambiente (Secrets Manager US$ 0,80 + S3/ECR) |
 | Camada efêmera, ligada | US$ 0,30/hora (EKS US$ 0,10 + 2× t3.medium + NAT + ALB + RDS) |
+| Datadog | trial de 14 dias sem cartão; depois, por host e por GB de log ingerido |
 
 Uma janela de uso de 4 horas custa cerca de **US$ 1,20**.
+
+O Datadog é a única peça cujo custo **não** está dimensionado aqui, e é
+deliberado: a cobrança é por host ativo e por GB ingerido, e o ambiente só fica
+de pé em janelas curtas. As duas decisões que seguram o número estão no código,
+não numa política — `namespace_filters` restringe a coleta do CloudWatch aos
+seis namespaces que os painéis leem (`persistent/datadog.tf`), e os contadores
+de negócio são **métricas de log**, que guardam o número e descartam a linha
+(`persistent/datadog_metrics.tf`).
 
 Homologação é efêmera pelo mesmo motivo que produção: mantê-la de pé 24/7
 custaria ~US$ 200/mês, mais que o ambiente que ela existe para proteger. Em

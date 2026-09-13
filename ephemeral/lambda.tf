@@ -83,6 +83,9 @@ resource "aws_lambda_function" "auth" {
       DATABASE_NAME      = aws_db_instance.main.db_name
       DATABASE_SECRET_ID = data.aws_ssm_parameter.database_secret_arn.value
       JWT_SECRET_ID      = data.aws_ssm_parameter.jwt_secret_arn.value
+
+      DD_ENV     = local.dd_env
+      DD_SERVICE = local.dd_service_lambda
     }
   }
 

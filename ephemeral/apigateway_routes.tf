@@ -23,6 +23,7 @@ resource "aws_apigatewayv2_integration" "auth" {
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.auth.invoke_arn
   payload_format_version = "2.0"
+
 }
 
 resource "aws_apigatewayv2_route" "auth" {
@@ -42,6 +43,10 @@ resource "aws_apigatewayv2_integration" "api" {
   integration_uri    = aws_lb_listener.http.arn
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.main.id
+
+  request_parameters = {
+    "append:header.x-request-id" = "$context.requestId"
+  }
 }
 
 # Rota coringa: tudo que nao casa com uma rota explicita vai para o monolito.
