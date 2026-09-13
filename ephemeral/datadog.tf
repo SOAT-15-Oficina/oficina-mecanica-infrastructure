@@ -154,6 +154,7 @@ resource "helm_release" "datadog" {
   depends_on = [
     aws_eks_node_group.main,
     kubernetes_secret.datadog,
+    helm_release.lb_controller,
   ]
 }
 
