@@ -23,6 +23,11 @@ resource "datadog_dashboard" "operational" {
           precision = 2
           autoscale = false
 
+          # Unico widget do painel que dependia do seletor global de tempo. Como
+          # a consulta e uma razao acumulada na janela, uma janela larga fazia
+          # qualquer periodo desligado dominar o numero.
+          live_span = "4h"
+
           request {
             aggregator = "avg"
             q          = "(sum:synthetics.test_runs{check:api-ping,$env,result:passed}.as_count() / sum:synthetics.test_runs{check:api-ping,$env}.as_count()) * 100"

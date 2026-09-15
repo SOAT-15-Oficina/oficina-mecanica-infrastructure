@@ -24,6 +24,10 @@ locals {
     var.manage_datadog_aws_integration == null ? local.is_production : var.manage_datadog_aws_integration
   )
 
+  manage_datadog_logs_metrics = local.datadog_enabled && (
+    var.manage_datadog_logs_metrics == null ? local.is_production : var.manage_datadog_logs_metrics
+  )
+
   datadog_aws_principal = "464622532012"
 
   datadog_integration_role_name = "${local.name}-datadog-integration"
@@ -236,6 +240,11 @@ locals {
     datadog_site          = var.datadog_site
     datadog_secret_arn    = local.datadog_enabled ? aws_secretsmanager_secret.datadog[0].arn : "unset"
     datadog_forwarder_arn = local.datadog_forwarder_arn
+
+    # O teste sintetico mudou para a camada efemera (ephemeral/datadog_synthetics.tf)
+    # e precisa dos mesmos destinatarios de alerta. Contrato por SSM, como o resto
+    # (ADR-0007). Vazio e valor valido: o monitor sobe sem @destinatario.
+    datadog_notify = local.dd_notify != "" ? local.dd_notify : "unset"
   }
 }
 

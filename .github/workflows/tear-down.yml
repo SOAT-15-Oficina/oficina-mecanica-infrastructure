@@ -85,7 +85,13 @@ jobs:
       # O -backend-config escolhe o state do ambiente e o TF_VAR_environment o
       # que o codigo descreve. Divergir os dois aqui e pior que num apply: o
       # Terraform destruiria o que estivesse no state selecionado.
+      # Sem as chaves do Datadog o destroy nao consegue remover o teste sintetico
+      # desta camada, e ele ficaria orfao rodando contra um ambiente destruido --
+      # exatamente o que motivou move-lo para ca.
       - name: Destroy ephemeral layer
+        env:
+          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
+          TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
           terraform -chdir=ephemeral init -input=false \

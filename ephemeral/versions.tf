@@ -26,6 +26,10 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.2"
     }
+    datadog = {
+      source  = "DataDog/datadog"
+      version = "~> 3.39"
+    }
   }
 
   # Mesma razao de persistent/versions.tf: a key vem de -backend-config.

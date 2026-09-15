@@ -67,69 +67,6 @@ resource "datadog_monitor" "budget_send_failed" {
   tags           = concat(local.dd_tags, ["signal:integration"])
 }
 
-resource "datadog_synthetics_test" "ping" {
-  count = local.datadog_enabled ? 1 : 0
-
-  name    = "[${var.environment}] Healthcheck publico de /api/ping"
-  type    = "api"
-  subtype = "http"
-  status  = "live"
-
-  locations = ["aws:sa-east-1"]
-
-  tags = concat(local.dd_tags, ["check:api-ping"])
-
-  request_definition {
-    method = "GET"
-    url    = "https://${aws_cloudfront_distribution.site.domain_name}/api/ping"
-
-    timeout = 10
-  }
-
-  assertion {
-    type     = "statusCode"
-    operator = "is"
-    target   = "200"
-  }
-
-  assertion {
-    type     = "body"
-    operator = "contains"
-    target   = "Pong"
-  }
-
-  assertion {
-    type     = "responseTime"
-    operator = "lessThan"
-    target   = "3000"
-  }
-
-  options_list {
-    tick_every = 300
-
-    monitor_name     = "[${var.environment}] API publica indisponivel"
-    monitor_priority = 1
-
-    retry {
-      count    = 1
-      interval = 300
-    }
-
-    monitor_options {
-      renotify_interval = 60
-    }
-  }
-
-  message = <<-EOT
-    A URL publica de ${var.environment} parou de responder.
-
-    Ordem de checagem: CloudFront -> API Gateway -> VPC Link -> ALB interno ->
-    pods. O ambiente pode simplesmente estar desligado: confira se algum
-    tear-down rodou antes de investigar.
-    ${local.dd_monitor_footer}
-  EOT
-}
-
 resource "datadog_monitor" "api_latency" {
   count = local.datadog_enabled ? 1 : 0
 

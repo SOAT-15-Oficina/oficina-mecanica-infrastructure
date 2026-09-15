@@ -192,6 +192,25 @@ variable "manage_datadog_aws_integration" {
   default     = null
 }
 
+variable "manage_datadog_logs_metrics" {
+  description = <<-EOT
+    Se esta stack CRIA as metricas de log (`oficina.*`).
+
+    Mesmo problema da integracao AWS, uma camada acima: o NOME de uma metrica de
+    log e global na organizacao Datadog, nao por ambiente. Com os dois ambientes
+    declarando `oficina.work_order_created`, o segundo apply recebe
+    `409 Conflict: a metric already exists with that name`.
+
+    Homologacao nao perde nada: a metrica e uma so, o filtro dela cobre os dois
+    ambientes e o `group_by` em `env` separa o dado. Todo painel consulta
+    `{$env}`, entao cada ambiente ve so o proprio numero.
+
+    Default: `true` em prod, `false` nos demais.
+  EOT
+  type        = bool
+  default     = null
+}
+
 variable "datadog_forward_cloudwatch_logs" {
   description = <<-EOT
     Se o Forwarder de logs do CloudWatch e criado e as assinaturas ligadas.

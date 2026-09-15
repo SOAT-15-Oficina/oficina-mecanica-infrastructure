@@ -17,6 +17,16 @@ provider "kubernetes" {
   }
 }
 
+# O teste sintetico vive nesta camada (ephemeral/datadog_synthetics.tf), entao o
+# provider vem com ela. `validate` fica ligado so quando ha chave: o `validate`
+# do CI roda sem credencial nenhuma.
+provider "datadog" {
+  api_key  = var.datadog_api_key
+  app_key  = var.datadog_app_key
+  api_url  = "https://api.${local.datadog_site}/"
+  validate = local.dd_synthetics_enabled
+}
+
 provider "helm" {
   kubernetes {
     host                   = aws_eks_cluster.main.endpoint

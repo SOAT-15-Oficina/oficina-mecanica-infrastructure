@@ -1,6 +1,13 @@
 locals {
   dd_log_scope = "@env:${local.dd_env}"
 
+  # A metrica de log e declarada por um ambiente so (ver
+  # manage_datadog_logs_metrics) e serve aos dois, entao o filtro dela nao pode
+  # ficar preso a um `env`. O recorte aqui e por servico, para nao ingerir log
+  # de outro projeto da mesma conta; a separacao por ambiente vem do `group_by`
+  # em `env`, que todo painel consulta como `{$env}`.
+  dd_log_metric_scope = "@service:(${local.dd_services.api} OR ${local.dd_services.lambda})"
+
   datadog_event_counters = {
     "work_order.created"             = "Ordens de servico abertas"
     "work_order.status_changed"      = "Transicoes de status aceitas"
@@ -14,12 +21,12 @@ locals {
 }
 
 resource "datadog_logs_metric" "event" {
-  for_each = local.datadog_enabled ? local.datadog_event_counters : {}
+  for_each = local.manage_datadog_logs_metrics ? local.datadog_event_counters : {}
 
   name = "oficina.${replace(each.key, ".", "_")}"
 
   filter {
-    query = "${local.dd_log_scope} @event:${each.key}"
+    query = "${local.dd_log_metric_scope} @event:${each.key}"
   }
 
   compute {
@@ -37,12 +44,12 @@ resource "datadog_logs_metric" "event" {
 }
 
 resource "datadog_logs_metric" "work_order_stage_duration" {
-  count = local.datadog_enabled ? 1 : 0
+  count = local.manage_datadog_logs_metrics ? 1 : 0
 
   name = "oficina.work_order_stage_duration"
 
   filter {
-    query = "${local.dd_log_scope} @event:work_order.status_changed @duration_ms:*"
+    query = "${local.dd_log_metric_scope} @event:work_order.status_changed @duration_ms:*"
   }
 
   compute {
@@ -68,12 +75,12 @@ resource "datadog_logs_metric" "work_order_stage_duration" {
 }
 
 resource "datadog_logs_metric" "integration_error" {
-  count = local.datadog_enabled ? 1 : 0
+  count = local.manage_datadog_logs_metrics ? 1 : 0
 
   name = "oficina.integration_error"
 
   filter {
-    query = "${local.dd_log_scope} status:error @integration:*"
+    query = "${local.dd_log_metric_scope} status:error @integration:*"
   }
 
   compute {
@@ -97,12 +104,12 @@ resource "datadog_logs_metric" "integration_error" {
 }
 
 resource "datadog_logs_metric" "http_request_duration" {
-  count = local.datadog_enabled ? 1 : 0
+  count = local.manage_datadog_logs_metrics ? 1 : 0
 
   name = "oficina.http_request_duration"
 
   filter {
-    query = "${local.dd_log_scope} @duration_ms:* @route:*"
+    query = "${local.dd_log_metric_scope} @duration_ms:* @route:*"
   }
 
   compute {

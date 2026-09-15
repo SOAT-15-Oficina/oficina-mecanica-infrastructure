@@ -141,7 +141,13 @@ jobs:
             -backend-config="${ENVIRONMENT}.s3.tfbackend"
           terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=10m
 
+      # As chaves do Datadog aqui sao do teste sintetico, que vive nesta camada
+      # (ephemeral/datadog_synthetics.tf). O agente no cluster nao as usa: le a
+      # API key do Secrets Manager.
       - name: Apply ephemeral layer
+        env:
+          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
+          TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
           terraform -chdir=ephemeral init -input=false \
