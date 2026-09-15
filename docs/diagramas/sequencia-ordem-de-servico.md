@@ -1,14 +1,15 @@
-# Diagrama de sequência — ordem de serviço
+# Ciclo de vida da ordem de serviço
 
-O ciclo de vida completo: abertura, diagnóstico, orçamento por e-mail, decisão
-do cliente e execução. Dois atores humanos com canais distintos — o operador
-usa rotas autenticadas por JWT, o cliente usa links públicos recebidos por
-e-mail.
+O percurso completo: abertura, diagnóstico, orçamento por e-mail, decisão do
+cliente e execução. Dois atores humanos com canais distintos. O operador usa
+rotas autenticadas por JWT; o cliente usa links públicos recebidos por e-mail.
 
 ## Máquina de estados
 
-A transição é validada no serviço de domínio; qualquer salto fora deste mapa é
-rejeitado com `ErrInvalidStatusTransition`.
+A transição é validada no serviço de domínio. Qualquer salto fora deste mapa é
+rejeitado com `ErrInvalidStatusTransition`, e o evento
+`work_order.transition_rejected` é registrado em log
+([ADR-0011](../adr/0011-logs-estruturados-com-correlacao.md)).
 
 ```mermaid
 stateDiagram-v2
@@ -26,8 +27,9 @@ stateDiagram-v2
     CANCELADA --> [*]
 ```
 
-Itens só podem ser adicionados ou removidos em `RECEBIDA`, `EM_DIAGNOSTICO` ou
-`AGUARDANDO_APROVACAO`. Depois de aprovada, a composição da OS está congelada.
+Itens só podem ser adicionados ou removidos nos estados `RECEBIDA`,
+`EM_DIAGNOSTICO` ou `AGUARDANDO_APROVACAO`. Depois de aprovada, a composição da
+OS está congelada, e os valores também ([ADR-0010](../adr/0010-snapshot-de-precos-na-ordem-de-servico.md)).
 
 ## 1. Abertura e envio do orçamento
 
@@ -52,11 +54,11 @@ sequenceDiagram
     GW->>API: POST /work-orders/{id}/services
     API->>DB: valida status permite alterar itens
     API->>DB: INSERT work_order_services<br/>com SNAPSHOT de título, preço e tempo
-    Note right of DB: o preço do catálogo pode mudar amanhã,<br/>o da OS não — ver ADR-0010
+    Note right of DB: o preço do catálogo pode mudar amanhã,<br/>o da OS não. Ver ADR-0010
     API-->>OP: 201 [serviços]
 
     OP->>GW: PUT /api/work-orders/{id}<br/>status = EM_DIAGNOSTICO
-    API->>DB: TransitionStatus (RECEBIDA → EM_DIAGNOSTICO)
+    API->>DB: TransitionStatus (RECEBIDA para EM_DIAGNOSTICO)
 
     OP->>GW: PUT /api/work-orders/{id}<br/>status = AGUARDANDO_APROVACAO
     API->>DB: TransitionStatus
@@ -67,10 +69,15 @@ sequenceDiagram
     SES-->>CLI: e-mail do orçamento
 ```
 
+O envio do e-mail acontece **dentro do handler**, sem fila. Falha do SES é
+registrada em log com o evento `budget.send_failed` e **não** derruba a
+operação de negócio. O racional e o custo aceito estão na
+[ADR-0002](../adr/0002-comunicacao-sincrona-http.md).
+
 ## 2. Decisão do cliente
 
 O cliente não tem conta nem token. Ele clica no link do e-mail, que carrega o
-UUID do item — um identificador não adivinhável.
+UUID do item, um identificador não adivinhável.
 
 ```mermaid
 sequenceDiagram
@@ -88,10 +95,10 @@ sequenceDiagram
 
     API->>DB: SELECT todos os serviços da OS
     alt ainda há serviço PENDENTE
-        API-->>CLI: 200 — aguarda as demais decisões
+        API-->>CLI: 200, aguarda as demais decisões
     else todas decididas
         alt ao menos um APROVADO
-            API->>DB: TransitionStatus → APROVADO
+            API->>DB: TransitionStatus para APROVADO
             API->>DB: recalcula total apenas com os aprovados
             API->>DB: procura insumos com estoque insuficiente
             opt há falta de insumo
@@ -99,13 +106,17 @@ sequenceDiagram
                 SES-->>COM: e-mail para compras@oficina.com
             end
         else todas REPROVADAS
-            API->>DB: TransitionStatus → CANCELADA
+            API->>DB: TransitionStatus para CANCELADA
         end
         API->>SES: e-mail de mudança de status
         SES-->>CLI: notificação
         API-->>CLI: 200
     end
 ```
+
+O total da OS é recalculado **apenas com os itens aprovados**. Um item
+reprovado permanece na tabela, com `approval_status = REPROVADO`, e fica fora
+da soma.
 
 Em paralelo, o cliente consulta o andamento sem autenticação, provando posse do
 documento:
@@ -124,6 +135,9 @@ sequenceDiagram
     end
 ```
 
+A resposta 404 para os dois casos é intencional: distinguir "não existe" de
+"não é seu" confirmaria a existência de uma OS a quem não tem o documento.
+
 ## 3. Execução
 
 ```mermaid
@@ -136,7 +150,7 @@ sequenceDiagram
     actor CLI as Cliente
 
     OP->>API: PUT /work-orders/{id}<br/>status = EM_EXECUCAO
-    API->>DB: TransitionStatus (APROVADO → EM_EXECUCAO)<br/>grava started_at
+    API->>DB: TransitionStatus (APROVADO para EM_EXECUCAO)<br/>grava started_at
     API->>SES: notificação de status
     SES-->>CLI: e-mail
 
@@ -157,11 +171,17 @@ sequenceDiagram
     API->>DB: grava delivered_at
 ```
 
+Cada item tem dois estados independentes: `approval_status`, que o cliente
+muda, e `status`, que o mecânico muda. A razão de serem duas colunas, e não
+uma, está no [modelo de dados](../banco-de-dados.md).
+
 ## Os carimbos de tempo alimentam as métricas
 
 `received_at`, `quote_sent_at`, `approved_at`, `started_at`, `finished_at` e
-`delivered_at` estão em `work_orders`; `started_at` e `finished_at` também em
-`work_order_services`. É deles que sai o **tempo médio de execução por status**
-exigido no dashboard, sem depender de tabela de histórico. Ver
-[RFC-0004](../rfc/0004-estrategia-de-observabilidade.md) e
-[banco de dados](../banco-de-dados.md).
+`delivered_at` estão em `work_orders`. `started_at` e `finished_at` também
+existem em `work_order_services`.
+
+É desses carimbos que sai o **tempo médio de execução por status** exigido no
+dashboard, sem depender de tabela de histórico. Foi o que permitiu remover a
+tabela `work_order_service_status_history` do schema sem perder a métrica
+([modelo de dados](../banco-de-dados.md), seção 4.2). Ver também [RFC-0004](../rfc/0004-estrategia-de-observabilidade.md).

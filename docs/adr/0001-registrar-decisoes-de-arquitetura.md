@@ -1,52 +1,30 @@
-# ADR-0001 — Registrar decisões de arquitetura
+# ADR-0001. Registrar decisões de arquitetura
 
-- **Estado:** Aceita
-- **Data:** 2026-09-02
-- **Contexto:** todos os repositórios
+**Aceita** · 2026-09-02 · Contexto: todos os repositórios
 
-## Contexto
-
-O sistema é mantido por quatro pessoas em quatro repositórios. Boa parte do
-racional arquitetural existia apenas em comentário de código e em prosa dentro
-dos READMEs — bom para quem lê aquele arquivo, invisível para quem chega
-depois e pergunta "por que não fizeram do jeito óbvio?".
-
-Sem registro, três coisas acontecem: a decisão é reaberta a cada onboarding, o
+**Contexto.** O sistema é mantido por quatro pessoas em quatro repositórios.
+Boa parte do racional arquitetural existia apenas em comentário de código e em
+prosa dentro dos READMEs, o que serve a quem lê aquele arquivo e é invisível
+para quem chega depois. Sem registro, a decisão é reaberta a cada onboarding, o
 custo já pago para chegar nela é perdido, e alguém a reverte sem saber qual
 problema ela resolvia.
 
-## Decisão
+**Decisão.** Manter dois tipos de documento em `docs/` do
+`oficina-mecanica-infrastructure`, que é o repositório dono da visão de
+sistema: **RFC** (`docs/rfc/`) discute, escrita antes de decidir, com problema,
+alternativas e recomendação; **ADR** (`docs/adr/`) decide, uma por arquivo, no
+formato contexto, decisão e consequências.
 
-Manter dois tipos de documento em `docs/` do
-`oficina-mecanica-infrastructure` — o repositório que já se declara dono da
-visão de sistema:
+Regras: numeração sequencial de quatro dígitos, nunca reaproveitada; **ADR não
+se edita**, e quando a decisão muda a antiga é marcada como `Substituída por
+ADR-XXXX` e a nova é escrita ao lado; estados `Proposta`, `Aceita`,
+`Substituída`, `Revogada`; toda ADR nomeia as consequências negativas; o
+pipeline ignora mudanças em `**/*.md` e `docs/adr/**`, porque documentar não
+dispara deploy.
 
-- **RFC** (`docs/rfc/`) — *discute*. Escrita antes de decidir: problema,
-  alternativas com prós e contras, recomendação. Pode gerar várias ADRs.
-- **ADR** (`docs/adr/`) — *decide*. Uma decisão por arquivo, no formato
-  contexto / decisão / consequências.
-
-Regras:
-
-1. Numeração sequencial de quatro dígitos, nunca reaproveitada.
-2. **ADR não se edita.** Quando a decisão muda, marca-se a antiga como
-   `Substituída por ADR-XXXX` e escreve-se a nova. O registro do que se pensava
-   antes tem valor.
-3. Estados: `Proposta` → `Aceita` → `Substituída` / `Revogada`.
-4. Toda ADR nomeia as consequências negativas. ADR sem custo listado é
-   propaganda, não decisão.
-5. O pipeline ignora mudanças em `**/*.md` e `docs/adr/**` — documentar não
-   dispara deploy.
-
-## Consequências
-
-**Positivas**
-- O "porquê" fica versionado ao lado do "o quê", revisável em Pull Request.
-- Reabrir uma decisão passa a exigir argumento novo, não só opinião nova.
-- Atende ao requisito formal de RFCs e ADRs da fase.
-
-**Negativas**
-- Documento a mais para manter. Mitigado por ADRs curtas e pelo fato de que
-  decisão que não vale uma página não vale uma ADR.
-- Risco de ADR desatualizada. Mitigado pela regra 2: ADR errada não se corrige,
-  se substitui.
+**Consequências.** O motivo fica versionado ao lado da implementação e
+revisável em Pull Request, e reabrir uma decisão passa a exigir argumento novo.
+O custo é um documento a mais para manter, mitigado por ADRs curtas e pelo
+critério de que decisão que não preenche uma página não precisa de ADR; e o
+risco de ADR desatualizada, mitigado pela regra de substituir em vez de
+corrigir.

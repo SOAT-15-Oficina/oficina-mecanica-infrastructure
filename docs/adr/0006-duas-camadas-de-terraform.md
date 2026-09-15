@@ -1,84 +1,50 @@
-# ADR-0006 — Duas camadas de Terraform: persistente e efêmera
+# ADR-0006. Duas camadas de Terraform: persistente e efêmera
 
-- **Estado:** Aceita
-- **Data:** 2026-09-02
+**Aceita** · 2026-09-02
 
-## Contexto
+**Contexto.** O ambiente é sob demanda: sobe, é usado e desce. Um EKS, mais um
+NAT Gateway, mais um RDS ligados 24 horas por dia custam na ordem de US$ 200
+por mês. Um `destroy` total, porém, esbarra em recursos que não toleram o ciclo:
 
-O ambiente é sob demanda: sobe, é usado, desce. Um EKS mais um NAT
-Gateway mais um RDS ligados 24×7 custam ordem de US$ 200/mês — inviável para um
-projeto acadêmico.
+| Recurso | Por que não tolera |
+|---|---|
+| Identidade SES | destruir remove da conta, e recriar exige um humano clicando em link de verificação por e-mail |
+| CloudFront | 15 a 20 min para criar, 15 a 25 para destruir; parada custa ~US$ 0; e o domínio é a base dos links de aprovação já enviados |
+| API Gateway | US$ 0 parado, e é a *origin* do CloudFront: recriado, o domínio muda e a origin aponta para o vazio |
+| ECR | destruir apaga as imagens, e o próximo bring-up subiria sem artefato |
+| Secrets Manager | janela de exclusão de 7 a 30 dias, e recriar com o mesmo nome dentro da janela falha |
 
-Um `destroy` total, porém, esbarra em recursos que não toleram o ciclo:
+**Decisão.** Dois diretórios Terraform com states independentes, mais um
+bootstrap aplicado uma vez por conta.
 
-- **Identidade SES.** Destruir remove-a da conta; recriar exige que um humano
-  clique num link de verificação recebido por e-mail. Passo manual antes de cada
-  bring-up.
-- **CloudFront.** ~15-20 min para criar, ~15-25 para destruir (precisa ser
-  desabilitada antes). Parada custa ~US$ 0. E o domínio dela é a base dos links
-  de aprovação enviados aos clientes por e-mail — se mudar, links antigos
-  quebram.
-- **API Gateway.** Custa US$ 0 parado e é a *origin* do CloudFront. Recriado, o
-  domínio `{id}.execute-api...` muda e a origin aponta para o vazio.
-- **ECR.** Destruir apaga as imagens; o próximo bring-up subiria sem artefato.
-- **Secrets Manager.** Segredos têm janela de exclusão de 7 a 30 dias; recriar
-  com o mesmo nome dentro da janela falha.
-
-## Decisão
-
-**Dois diretórios Terraform com states independentes**, mais um bootstrap
-aplicado uma vez por conta.
-
-| Camada | Diretório | Custo | Conteúdo |
-|---|---|---|---|
-| **Bootstrap** | `bootstrap/` | centavos | bucket de state, tabela de lock. Aplicado à mão, uma vez por conta |
-| **Persistente** | `persistent/` | ~US$ 1/mês | OIDC + roles, ECR, identidades SES, S3, CloudFront, **API Gateway + stage**, Secrets Manager, parâmetros SSM estáveis |
-| **Efêmera** | `ephemeral/` | ~US$ 0,30/hora | VPC, NAT, EKS, ALB interno, RDS, Lambda, VPC Link, **rotas e integrações do gateway**, todos os objetos Kubernetes |
+| Camada | Diretório | Custo | Conteúdo | Aplicação |
+|---|---|---|---|---|
+| Bootstrap | `bootstrap/` | centavos | bucket de state, tabela de lock | à mão, uma vez por conta |
+| Persistente | `persistent/` | ~US$ 1/mês | OIDC e roles, ECR, identidades SES, S3, CloudFront, **API Gateway e stage**, Secrets Manager, parâmetros SSM estáveis | automática, em push para `hml` ou `main` |
+| Efêmera | `ephemeral/` | ~US$ 0,30/h | VPC, NAT, EKS, ALB interno, RDS, Lambda, VPC Link, **rotas e integrações do gateway**, objetos Kubernetes | manual, por `bring-up.yml` e `tear-down.yml` |
 
 O corte do API Gateway é o mais fino e o mais importante: **o API e o stage são
-persistentes; as rotas, integrações e o VPC Link são efêmeros**. Com o ambiente
-desligado, o domínio existe e responde 404 — que é o comportamento correto.
+persistentes; as rotas, as integrações e o VPC Link são efêmeros**. Desligado,
+o domínio existe e responde 404.
 
-Gatilhos:
+O `tear-down` remove os `TargetGroupBinding` **antes** do destroy, porque sem
+isso o `aws-load-balancer-controller` recria targets em um ALB que o Terraform
+está removendo. Ao final, verifica que nada da camada efêmera sobrou.
 
-| Camada | Como é aplicada |
+## Alternativas descartadas
+
+| Opção | Motivo do descarte |
 |---|---|
-| Persistente | automática, em push para `hml` ou `main` |
-| Efêmera | manual, pelos workflows `bring-up.yml` e `tear-down.yml` |
-
-O `tear-down` remove os `TargetGroupBinding` **antes** do destroy — senão o
-`aws-load-balancer-controller` recria targets num ALB que o Terraform está
-removendo — e ao final verifica que nada da camada efêmera sobrou.
-
-## Alternativas consideradas
-
-**State único com `-target`.** `terraform destroy -target=...` é explicitamente
-desaconselhado pela HashiCorp para uso rotineiro e deixa o state inconsistente
-quando há dependência cruzada.
-
-**Workspaces.** Separam ambientes, não ciclos de vida. Ortogonal ao problema.
-
-**Deixar tudo de pé.** Resolveria por US$ 200/mês.
-
-**Módulo único com `count = var.enabled`.** Manteria um state só, mas encheria
-cada recurso de condicional e o `plan` de ruído.
+| State único com `-target` | desaconselhado pela HashiCorp para uso rotineiro, e deixa o state inconsistente quando há dependência cruzada |
+| Workspaces | separam ambientes, não ciclos de vida: ortogonais ao problema |
+| Deixar tudo de pé | resolveria por US$ 200/mês |
+| Módulo único com `count = var.enabled` | manteria um state só, mas encheria cada recurso de condicional e o `plan` de ruído |
 
 ## Consequências
 
-**Positivas**
-- Custo parado de ~US$ 1/mês por ambiente.
-- Domínio público estável entre ciclos: links de aprovação já enviados
-  continuam válidos.
-- Nenhuma reverificação de e-mail no SES.
-- O `plan` da camada efêmera é pequeno e legível.
-
-**Negativas**
-- **Duas camadas para aplicar na ordem certa.** Ambiente novo exige um `apply`
-  humano da persistente antes de qualquer pipeline funcionar — as roles OIDC que
-  o CI assume nascem ali (ovo e galinha, documentado no README).
-- Dependências cruzadas passam pelo SSM em vez de referência direta de recurso
-  ([ADR-0007](0007-contrato-entre-repositorios-via-ssm.md)) — o Terraform não
-  valida essa aresta.
-- O `lifecycle.ignore_changes` no stage do gateway é necessário para que o apply
-  da persistente não reverta o que a efêmera criou. É sutil e fácil de quebrar.
-- ~25-30 min do zero até um ambiente demonstrável.
+| Ganhos | Custos |
+|---|---|
+| Custo parado de ~US$ 1/mês por ambiente | **duas camadas para aplicar na ordem certa**: ambiente novo exige um `apply` humano da persistente antes de qualquer pipeline, porque as roles OIDC nascem ali |
+| Domínio público estável entre ciclos: links de aprovação já enviados continuam válidos | dependências cruzadas passam pelo SSM em vez de referência direta ([ADR-0007](./0007-contrato-entre-repositorios-via-ssm.md)), e o Terraform não valida essa aresta |
+| Nenhuma reverificação de e-mail no SES | o `lifecycle.ignore_changes` no stage do gateway é necessário para a persistente não reverter o que a efêmera criou: é sutil e fácil de quebrar |
+| O `plan` da camada efêmera é pequeno e legível | 25 a 30 minutos do zero até um ambiente demonstrável |
