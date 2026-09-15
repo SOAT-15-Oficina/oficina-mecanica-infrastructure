@@ -282,7 +282,7 @@ Depois, tudo por workflow:
 | `terraform.yml` | PR → `main` ou `hml` | fmt, validate, tflint nas três camadas |
 | `terraform.yml` | push → `hml` | `apply` da **persistente** de homologação |
 | `terraform.yml` | push → `main` | `apply` da **persistente** de produção, com required reviewer |
-| `bring-up.yml` | manual, input `environment` | apply da efêmera → dispara os 3 deploys → verifica o endpoint público |
+| `bring-up.yml` | manual, input `environment` | apply da efêmera → dispara os 3 deploys → publica a URL do ambiente no resumo do run |
 | `tear-down.yml` | manual (`environment` + confirmação) | remove TargetGroupBindings → destroy da efêmera → **verifica que nada sobrou** |
 
 `bring-up` e `tear-down` precisam ser disparados da branch do ambiente: `hml`
