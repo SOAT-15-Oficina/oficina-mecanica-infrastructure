@@ -151,9 +151,13 @@ resource "helm_release" "datadog" {
     }
   })]
 
+  # O lb_controller entra aqui para serializar os dois charts. Sem isso o
+  # Terraform sobe os dois em paralelo e os Services do Datadog batem no webhook
+  # do controller antes dele ter endpoint (ver addons.tf).
   depends_on = [
     aws_eks_node_group.main,
     kubernetes_secret.datadog,
+    helm_release.lb_controller,
   ]
 }
 
