@@ -93,6 +93,19 @@ resource "helm_release" "lb_controller" {
     value = aws_vpc.main.id
   }
 
+  # O chart registra um mutating webhook (mservice.elbv2.k8s.aws) que intercepta
+  # a criacao de QUALQUER Service do cluster, com failurePolicy Fail. Ele passa a
+  # existir assim que o helm aplica os manifests, mas so tem endpoint quando os
+  # pods do controller ficam prontos -- nessa janela todo Service criado falha
+  # com "no endpoints available". Como o webhook serve apenas para injetar
+  # loadBalancerClass em Service do tipo LoadBalancer, que aqui nao existe (o ALB
+  # e do Terraform e o controller so reconcilia o TargetGroupBinding), desligar e
+  # o caminho mais seguro.
+  set {
+    name  = "enableServiceMutatorWebhook"
+    value = "false"
+  }
+
   depends_on = [aws_eks_node_group.main]
 }
 
