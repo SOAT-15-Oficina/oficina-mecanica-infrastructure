@@ -40,7 +40,7 @@ flowchart LR
 | Log | `slog` JSON da API e da Lambda, mais o access log do gateway | investigação, eventos de domínio, alerta por evento |
 | Métrica de infra | cAdvisor e kube-state-metrics, via agente `DaemonSet` | CPU, memória, réplicas, reinícios, pods não-Ready |
 | Métrica de aplicação | instrumentação HTTP no Fiber | latência p50/p95/p99 por rota, taxa de erro, throughput |
-| Uptime | monitor sintético contra `/api/ping` | disponibilidade vista de fora |
+| Uptime | monitor sintético contra `/api/ping`, criado com a camada efêmera | disponibilidade vista de fora, enquanto o ambiente devia estar no ar |
 
 ## Alternativas de backend
 
@@ -88,13 +88,28 @@ Datadog, e um campo intermitente é menos útil que um campo ausente.
 
 **Fase 2.** `helm_release` do agente na camada efêmera, chave de API no Secrets
 Manager injetada como `Secret`, encaminhamento dos log groups do gateway e da
-Lambda, e métricas do RDS via integração AWS. Dois pontos surgiram na
+Lambda, e métricas do RDS via integração AWS. Três pontos surgiram na
 implementação: a integração AWS pertence à conta e não ao ambiente, então só
 produção a possui (`manage_datadog_aws_integration`) e homologação continua
 enxergando tudo pela tag `env`, que por isso entrou no `default_tags` das duas
-camadas; e `logs_config.sources` ficou vazio de propósito, porque preenchido o
-Datadog assinaria por conta própria log groups de outro projeto na mesma conta.
-As assinaturas são `aws_cloudwatch_log_subscription_filter` explícitos.
+camadas; `logs_config.sources` ficou vazio de propósito, porque preenchido o
+Datadog assinaria por conta própria log groups de outro projeto na mesma conta,
+e as assinaturas são `aws_cloudwatch_log_subscription_filter` explícitos; e o
+**nome de uma métrica de log também pertence à organização, não ao ambiente**.
+
+Esse terceiro ponto só apareceu quando `hml` foi alinhada com `main` e o apply
+de homologação encontrou as 11 métricas `oficina.*` já criadas por produção:
+
+```
+409 Conflict: 'oficina.work_order_created' cannot be used as metric name,
+a metric already exists with that name
+```
+
+O tratamento é o mesmo da integração AWS: `manage_datadog_logs_metrics` deixa
+só produção declarar as métricas, e o filtro delas passa a recortar por serviço
+(`@service:(monolith OR auth-lambda)`) em vez de por ambiente. A separação por
+ambiente não se perde, porque toda métrica tem `group_by` em `env` e todo painel
+consulta `{$env}`.
 
 **Fase 3.** Middleware no Fiber com linha de acesso por rota e status, de onde
 sai `oficina.http_request_duration`, e traço por requisição com `request_id`
@@ -107,6 +122,16 @@ segurar a versão do Fiber.
 `limits`, réplicas do HPA, pods não-Ready e reinícios (agente e
 kube-state-metrics); uptime de `/api/ping` (monitor sintético); duração, erro e
 cold start da Lambda, e conexões, CPU e IOPS do RDS (integração AWS).
+
+**O teste sintético vive na camada efêmera**, e não na persistente. Enquanto
+ficou na persistente, ele seguia `live` com o ambiente destruído: o domínio do
+CloudFront e o API Gateway sobrevivem ao `tear-down`, mas as rotas e o VPC Link
+não, então cada execução recebia 404 e falhava. Como o widget de uptime é uma
+razão acumulada na janela (execuções que passaram sobre o total), ele exibia 0%
+depois de qualquer período desligado, e o monitor `priority 1` disparava por
+ambiente desligado de propósito. Criado pelo `bring-up` e destruído pelo
+`tear-down`, uptime passa a medir o que se espera dele. O widget também fixa
+`live_span = "4h"`, para não depender do seletor global de tempo do painel.
 
 **Fase 4, dashboards de negócio.** Os três exigidos, todos derivados de
 métricas de log (`persistent/datadog_metrics.tf`) e não de consulta a log: o

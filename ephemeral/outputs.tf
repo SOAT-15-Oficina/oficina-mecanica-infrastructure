@@ -28,6 +28,11 @@ output "vpc_link_id" {
   value       = aws_apigatewayv2_vpc_link.main.id
 }
 
+output "datadog_synthetic_test_id" {
+  description = "Id do teste sintetico de /api/ping. Nasce e morre com o ambiente."
+  value       = local.dd_synthetics_enabled ? datadog_synthetics_test.ping[0].id : "desligado"
+}
+
 output "next_steps" {
   description = "O que falta para o ambiente ficar utilizavel."
   value       = <<-EOT

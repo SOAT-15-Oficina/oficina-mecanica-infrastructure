@@ -66,3 +66,25 @@ variable "datadog_chart_version" {
   type        = string
   default     = "3.244.0"
 }
+
+# As duas chaves abaixo existem porque o teste sintetico passou a ser desta
+# camada. O agente dentro do cluster nao usa nenhuma das duas: ele le a API key
+# do Secrets Manager, cujo ARN vem do SSM.
+variable "datadog_api_key" {
+  description = "API key do Datadog. Vem de TF_VAR_datadog_api_key nos workflows."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "datadog_app_key" {
+  description = <<-EOT
+    Application key do Datadog, exigida para criar teste sintetico.
+
+    Vazia desliga o teste (`local.dd_synthetics_enabled`), o que mantem
+    `terraform validate` e um apply local funcionando sem credencial de Datadog.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+}
