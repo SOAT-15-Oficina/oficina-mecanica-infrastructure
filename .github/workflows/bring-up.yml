@@ -157,11 +157,26 @@ jobs:
       - name: Export outputs
         id: outputs
         run: |
+          BASE_URL="$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" --query Parameter.Value --output text)"
+
           {
             echo "cluster=$(terraform -chdir=ephemeral output -raw eks_cluster_name)"
             echo "namespace=$(aws ssm get-parameter --name "${SSM_PREFIX}/kube_namespace" --query Parameter.Value --output text)"
-            echo "base_url=$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" --query Parameter.Value --output text)"
+            echo "base_url=$BASE_URL"
           } >> "$GITHUB_OUTPUT"
+
+          # A URL era impressa pelo job `verify`, que saiu daqui. Quem dispara um
+          # bring-up ainda precisa saber onde o ambiente ficou.
+          {
+            echo "### Ambiente \`$ENVIRONMENT\`"
+            echo
+            echo "- Painel e API: $BASE_URL"
+            echo "- Healthcheck: \`$BASE_URL/api/ping\`"
+            echo
+            echo "O 200 em \`/api/ping\` so aparece depois do rollout do -monolith."
+            echo "A disponibilidade continua sendo acompanhada pelo teste sintetico"
+            echo "do Datadog (ephemeral/datadog_synthetics.tf), que checa a cada 5 min."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Cada repositorio de aplicacao e dono do proprio deploy. O bring-up apenas
   # os aciona, na ordem em que dependem uns dos outros.
@@ -237,31 +252,3 @@ jobs:
           frontend_id="$(dispatch frontend)"
           await serverless "$serverless_id"
           await frontend "$frontend_id"
-
-  # Sem `environment:` e sem credencial AWS de proposito.
-  #
-  # Agora que o secret AWS_DEPLOY_ROLE_ARN vive DENTRO do GitHub Environment,
-  # qualquer job que o use passa pelo required reviewer -- e este run pediria
-  # duas aprovacoes. A URL publica ja foi lida pelo job `apply`, que tinha a
-  # credencial; daqui e so um curl na internet.
-  verify:
-    needs: [apply, deploy-applications]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check public endpoint
-        env:
-          URL: ${{ needs.apply.outputs.base_url }}
-        run: |
-          echo "Ambiente '$ENVIRONMENT' em: $URL"
-
-          for _ in $(seq 1 40); do
-            if curl -fsS "${URL}/api/ping" | grep -Fx Pong; then
-              curl -fsS "${URL}/index.html" >/dev/null
-              echo "OK: painel e API respondendo"
-              exit 0
-            fi
-            sleep 15
-          done
-
-          echo "Ambiente nao respondeu a tempo"
-          exit 1

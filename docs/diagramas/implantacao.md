@@ -97,8 +97,7 @@ sequenceDiagram
     APP->>AWS: monolith: imagem, Job migrate, rollout
     APP->>AWS: serverless: zip, update-function-code, invoke de fumaça
     APP->>AWS: frontend: s3 sync, invalidação do CloudFront
-    GHA->>AWS: verifica o endpoint público
-    GHA-->>DEV: URL do ambiente
+    GHA-->>DEV: URL do ambiente no resumo do run
 ```
 
 Dois pontos que confundem na primeira leitura:
