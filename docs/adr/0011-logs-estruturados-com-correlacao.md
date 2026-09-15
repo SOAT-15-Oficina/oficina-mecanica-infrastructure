@@ -1,162 +1,108 @@
-# ADR-0011 — Logs estruturados com correlação de requisições
+# ADR-0011. Logs estruturados com correlação de requisições
 
-- **Estado:** Aceita
-- **Data:** 2026-09-02
-- **Relacionada:** [RFC-0004](../rfc/0004-estrategia-de-observabilidade.md)
+**Proposta** · 2026-09-02 · Relacionada [RFC-0004](../rfc/0004-estrategia-de-observabilidade.md)
 
-## Contexto
+**Contexto.** O monolito e a Lambda registram com a biblioteca padrão `log`, em
+texto livre. Três limitações concretas: não é consultável, porque achar todos
+os erros de envio de e-mail da última hora exige `grep` sobre texto cujo
+formato muda de mensagem para mensagem; não correlaciona, porque uma requisição
+que passa pelo CloudFront, pelo API Gateway, pelo ALB e por um dos até 10 pods
+deixa rastros em quatro lugares sem identificador comum; e não tem nível, o que
+impede alertar sobre `ERROR` sem alertar sobre todo o resto.
 
-Hoje o monolito e a Lambda registram com a biblioteca padrão `log`, em texto
-livre:
-
-```
-budget: send email for work order 3f2a...: dial tcp: i/o timeout
-work order status notification: find customer for work order 3f2a...: no rows
-```
-
-Três limitações concretas:
-
-1. **Não é consultável.** Achar "todos os erros de envio de e-mail da última
-   hora" exige `grep` sobre texto, e o formato muda de mensagem para mensagem.
-2. **Não correlaciona.** Uma requisição que passa pelo CloudFront, pelo API
-   Gateway, pelo ALB e por um dos até 10 pods deixa rastros em quatro lugares,
-   sem identificador comum. Com o HPA ativo, as linhas de uma mesma operação
-   podem estar em pods diferentes.
-3. **Não tem nível nem contexto fixo.** Tudo é a mesma coisa: não dá para
-   alertar sobre `ERROR` sem alertar sobre tudo.
-
-O access log do API Gateway **já** é JSON e já carrega `$context.requestId` — o
+O access log do API Gateway **já** é JSON e já carrega `$context.requestId`: o
 elo existe na borda e se perde ao entrar na aplicação.
 
-## Decisão
+**Decisão.** Adotar `log/slog` com handler JSON em todos os componentes Go, e
+propagar um identificador de correlação da borda até a última linha de log.
 
-**Adotar `log/slog` com handler JSON em todos os componentes Go, e propagar um
-identificador de correlação da borda até a última linha de log.**
-
-### 1. Identificador de correlação
-
-O API Gateway passa a injetar o próprio `requestId` como header na integração,
-via *parameter mapping*:
+**1. Identificador de correlação.** O API Gateway injeta o próprio `requestId`
+como header na integração, via *parameter mapping*:
 
 ```
 append:header.x-request-id = $context.requestId
 ```
 
-Assim o identificador que aparece no access log do gateway é o mesmo que a
-aplicação recebe. Se o header vier ausente (chamada interna, teste local), a
-aplicação gera um UUID.
+O uso de `append:` em vez de `overwrite:` tem consequência: se o cliente mandou
+um `X-Request-Id`, ele continua na requisição, **antes** do valor do gateway.
+**A aplicação usa o último valor**, que é o único que ela sabe ter nascido na
+borda. Header de cliente é entrada não confiável, não pode virar chave de
+correlação e não deve chegar a um campo de log sem filtro. Se o header vier
+ausente, em chamada interna ou teste local, a aplicação gera um UUID.
 
-`append:` e não `overwrite:` tem uma consequência do lado da aplicação: se o
-cliente mandou um `X-Request-Id`, ele continua na requisição, **antes** do valor
-do gateway. **A aplicação usa o último valor**, que é o único que ela sabe ter
-nascido na borda. Header de cliente é entrada não confiável e não pode virar
-chave de correlação — nem chegar a um campo de log sem passar por filtro.
+**2. Middleware no monolito.** Primeiro da cadeia, antes de `Auth`: lê o último
+`X-Request-Id`, ou gera um, e o descarta se não passar por um filtro de
+caracteres; coloca um `*slog.Logger` decorado no `context.Context`; devolve o
+mesmo id no header da resposta; e ao final emite uma linha de acesso com
+método, rota, status e duração. Todo log dentro do handler sai do logger do
+contexto, e nunca do global.
 
-### 2. Middleware no monolito
+**3. Taxonomia de campos**, igual nos dois runtimes:
 
-Primeiro middleware da cadeia, antes de `Auth`:
+| Campo | Origem |
+|---|---|
+| `time`, `level`, `msg` | `slog` |
+| `service` | build: `monolith`, `auth-lambda` |
+| `env` | variável de ambiente: `homolog`, `prod` |
+| `version` | SHA do commit |
+| `request_id` | header ou gerado |
+| `route`, `method`, `status`, `duration_ms` | linha de acesso |
+| `http.status_code` | linha de acesso, ao lado de `status` |
+| `user`, `role` | claims do JWT, quando houver |
+| `work_order_id`, `work_order_code` | quando a operação tiver uma OS |
+| `event` | nome do evento de domínio |
+| `decision` | resultado de `approval.decided` |
+| `integration` | dependência externa, em `level=ERROR`: `ses`, `rds`, `apigateway` |
+| `error` | `err.Error()` em `level=ERROR` |
 
-- lê o **último** `X-Request-Id` (ou gera), e o descarta se ele não passar por
-  um filtro de caracteres — o valor vai para header de resposta, tag de traço e
-  toda linha de log da requisição;
-- coloca um `*slog.Logger` já decorado no `context.Context` da requisição;
-- devolve o mesmo id no header da resposta;
-- ao final, emite uma linha de acesso com método, rota, status e duração.
+**Nunca** entram em log: `password`, `password_hash`, o token, o segredo JWT e
+o `document` do cliente, porque CPF e CNPJ são dado pessoal. No lugar,
+`customer_id`.
 
-Todo log dentro do handler sai do logger do contexto — nunca do global.
-
-### 3. Taxonomia de campos
-
-Campos fixos, iguais nos dois runtimes:
-
-| Campo | Origem | Exemplo |
-|---|---|---|
-| `time`, `level`, `msg` | `slog` | — |
-| `service` | build | `monolith`, `auth-lambda` |
-| `env` | variável de ambiente | `homolog`, `prod` |
-| `version` | SHA do commit | `16c3616` |
-| `request_id` | header ou gerado | `Kx9...` |
-| `route`, `method`, `status`, `duration_ms` | linha de acesso | `/work-orders` |
-| `http.status_code` | linha de acesso, ao lado de `status` (ver abaixo) | `200` |
-| `user`, `role` | claims do JWT, quando houver | `admin` |
-| `work_order_id`, `work_order_code` | quando a operação tiver uma OS | — |
-| `event` | nome do evento de domínio (§4) | `work_order.created` |
-| `decision` | resultado de `approval.decided` | `approved`, `rejected` |
-| `integration` | dependência externa envolvida, em `level=ERROR` | `ses`, `rds`, `apigateway` |
-| `error` | `err.Error()` em `level=ERROR` | — |
-
-**Nunca** entram em log: `password`, `password_hash`, o token, o segredo JWT, e
-o `document` do cliente (CPF/CNPJ é dado pessoal — usa-se `customer_id`).
-
-**Por que `http.status_code` existe além de `status`.** No pré-processamento de
-log JSON, o Datadog procura o *nível* do log numa lista de atributos que começa
-por `status` — o mesmo nome que a linha de acesso usa para o status HTTP. Se ele
-o consumir, `@status` desaparece do log e o `group_by` de
+`http.status_code` existe além de `status` porque, no pré-processamento de log
+JSON, o Datadog procura o *nível* do log em uma lista de atributos que começa
+por `status`, o mesmo nome que a linha de acesso usa para o status HTTP. Se ele
+o consumir, `@status` desaparece e o `group_by` de
 `oficina.http_request_duration` fica sem a dimensão, sem nada quebrar
-visivelmente. `http.status_code` é o atributo padrão do Datadog para status
-HTTP: emitindo os dois, a correção passa a ser uma linha de Terraform em vez de
-um novo deploy das duas aplicações.
+visivelmente. Emitir os dois faz a correção ser uma linha de Terraform em vez
+de um novo deploy das duas aplicações.
 
-### 4. Eventos de domínio explícitos
-
-Além da linha de acesso, eventos nomeados para o que os dashboards e alertas
-precisam contar.
-
-**O nome vai num campo próprio, `event` — não no `msg`.** `msg` é texto para
-humano e muda na primeira refatoração de mensagem; `event` é identificador e não
-muda. É `@event` que as métricas de log e os alertas consultam
-(`persistent/datadog_metrics.tf` e `persistent/datadog_monitors.tf`), e alertar
-sobre texto de mensagem é a forma mais rápida de ter um alerta que para de
-disparar sem ninguém perceber.
+**4. Eventos de domínio explícitos.** O nome vai em um campo próprio, `event`,
+e não no `msg`: `msg` é texto para humano e muda na primeira refatoração;
+`event` é identificador e não muda. É `@event` que as métricas de log e os
+alertas consultam (`persistent/datadog_metrics.tf` e
+`persistent/datadog_monitors.tf`).
 
 | Evento | Nível | Quando |
 |---|---|---|
 | `work_order.created` | INFO | OS aberta |
-| `work_order.status_changed` | INFO | transição aceita, com `from`, `to` e `duration_ms` — o tempo passado no status anterior |
+| `work_order.status_changed` | INFO | transição aceita, com `from`, `to` e `duration_ms` no status anterior |
 | `work_order.transition_rejected` | WARN | transição inválida |
-| `budget.sent` / `budget.send_failed` | INFO / ERROR | envio do orçamento |
+| `budget.sent` e `budget.send_failed` | INFO e ERROR | envio do orçamento |
 | `approval.decided` | INFO | cliente aprovou ou reprovou |
 | `purchase_alert.sent` | INFO | falta de insumo detectada |
 | `auth.login_failed` | WARN | credencial inválida |
 
-São esses eventos, e não `grep` em texto, que alimentam o **alerta de falha no
-processamento de ordens de serviço** exigido na fase.
+São esses eventos que alimentam o alerta de falha no processamento de ordens de
+serviço exigido no desafio.
 
-### 5. Lambda
-
-Mesmo handler JSON e mesma taxonomia. `request_id` vem do
+**5. Lambda.** Mesmo handler JSON e mesma taxonomia. O `request_id` vem de
 `events.APIGatewayV2HTTPRequest.RequestContext.RequestID`, que é exatamente o
 `$context.requestId` do access log.
 
-## Alternativas consideradas
+## Alternativas descartadas
 
-**`zerolog` ou `zap`.** Mais rápidos e com API mais rica. `slog` é biblioteca
-padrão desde o Go 1.21, não adiciona dependência, e a diferença de desempenho é
-irrelevante para o volume aqui.
-
-**Só o access log do API Gateway.** Já existe e é JSON, mas para no gateway: não
-enxerga nada de dentro da aplicação, e não sabe *por que* um 500 aconteceu.
-
-**Tracing distribuído (OpenTelemetry) em vez de correlação por id.** É o passo
-seguinte, e o `request_id` é pré-requisito dele, não substituto. Registrado na
-[RFC-0004](../rfc/0004-estrategia-de-observabilidade.md).
+| Opção | Motivo do descarte |
+|---|---|
+| `zerolog` ou `zap` | mais rápidos e com API mais rica, mas `slog` é biblioteca padrão desde o Go 1.21, não adiciona dependência, e a diferença de desempenho é irrelevante para o volume aqui |
+| Só o access log do API Gateway | já existe e é JSON, mas para no gateway: não enxerga nada de dentro da aplicação e não registra por que um 500 aconteceu |
+| Tracing distribuído em vez de correlação por id | é o passo seguinte, e o `request_id` é pré-requisito dele, não substituto ([RFC-0004](../rfc/0004-estrategia-de-observabilidade.md)) |
 
 ## Consequências
 
-**Positivas**
-- Uma requisição vira uma consulta: `request_id = "..."` devolve o rastro
-  inteiro, incluindo o access log da borda.
-- Os três painéis de negócio da fase saem daqui sem consulta ao banco: os
-  contadores são métricas derivadas destes eventos.
-- Alerta por `level` e por evento nomeado, sem depender de texto de mensagem.
-- Campos `env` e `version` permitem separar homologação de produção e atribuir
-  uma regressão a um deploy.
-
-**Negativas**
-- Toque em todos os pontos que hoje chamam `log.Printf` — mecânico, mas amplo.
-- Log JSON é ilegível no terminal sem `jq`. Mitigação: handler de texto quando
-  `ENV=local`.
-- Volume maior de bytes por linha, com efeito em custo de ingestão.
-- Disciplina permanente: campo novo precisa entrar na taxonomia, e é fácil
-  vazar dado pessoal em `slog.Any` de uma struct inteira. Mitigação: registrar
-  os tipos de domínio com `LogValue()` que omite campos sensíveis.
+| Ganhos | Custos |
+|---|---|
+| Uma requisição vira uma consulta: `request_id = "..."` devolve o rastro inteiro, incluindo o access log da borda | exige tocar em todos os pontos que chamam `log.Printf`: trabalho mecânico, mas amplo |
+| Os três painéis de negócio saem daqui, sem consulta ao banco | log JSON é ilegível no terminal sem `jq`. Mitigação: handler de texto quando `ENV=local` |
+| Alerta por `level` e por evento nomeado, sem depender de texto de mensagem | volume maior de bytes por linha, com efeito em custo de ingestão |
+| `env` e `version` permitem separar ambientes e atribuir uma regressão a um deploy | disciplina permanente: campo novo precisa entrar na taxonomia, e é fácil vazar dado pessoal em `slog.Any` de uma struct inteira. Mitigação: `LogValue()` nos tipos de domínio |
