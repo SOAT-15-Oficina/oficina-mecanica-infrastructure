@@ -406,14 +406,15 @@ k8s/          Deployment, Service, HPA, PDB, ServiceAccount e TargetGroupBinding
 A plataforma publica no SSM o que os serviços consomem, como já faz hoje
 ([ADR-0007](../adr/0007-contrato-entre-repositorios-via-ssm.md)). Aos parâmetros
 atuais (`vpc_id`, `private_subnet_ids`, `eks_cluster_name`, `kube_namespace`)
-somam-se quatro novos:
+somam-se os seguintes:
 
 | Parâmetro | Usado para |
 |---|---|
 | `eks_oidc_provider_arn` | trust policy da role IRSA de cada serviço |
 | `eks_node_security_group_id` | liberar a porta do RDS do serviço para os pods |
 | `alb_listener_arn` | regra de caminho do serviço no ALB interno |
-| `public_base_url` | links enviados por e-mail (aprovação, pagamento) |
+| `internal_service_token_secret_arn` | token que a Lambda usa para chamar `/internal/*` do OS Service |
+| `public_base_url` | já existia; passa a incluir `/api` e é a base dos links enviados por e-mail (aprovação, pagamento) |
 
 Os manifestos saem de `ephemeral/k8s.tf` e passam a ser YAML no repositório de
 cada serviço, aplicados pelo pipeline com `kubectl kustomize | kubectl apply`.
