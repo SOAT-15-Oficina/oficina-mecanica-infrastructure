@@ -32,8 +32,8 @@ data "aws_iam_policy_document" "auth_lambda" {
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      data.aws_ssm_parameter.database_secret_arn.value,
       data.aws_ssm_parameter.jwt_secret_arn.value,
+      data.aws_ssm_parameter.internal_service_token_secret_arn.value,
     ]
   }
 }
@@ -78,11 +78,9 @@ resource "aws_lambda_function" "auth" {
 
   environment {
     variables = {
-      DATABASE_HOST      = aws_db_instance.main.address
-      DATABASE_PORT      = tostring(aws_db_instance.main.port)
-      DATABASE_NAME      = aws_db_instance.main.db_name
-      DATABASE_SECRET_ID = data.aws_ssm_parameter.database_secret_arn.value
-      JWT_SECRET_ID      = data.aws_ssm_parameter.jwt_secret_arn.value
+      OS_INTERNAL_BASE_URL             = "http://${aws_lb.internal.dns_name}"
+      INTERNAL_SERVICE_TOKEN_SECRET_ID = data.aws_ssm_parameter.internal_service_token_secret_arn.value
+      JWT_SECRET_ID                    = data.aws_ssm_parameter.jwt_secret_arn.value
 
       DD_ENV     = local.dd_env
       DD_SERVICE = local.dd_service_lambda

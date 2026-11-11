@@ -1,16 +1,11 @@
 output "eks_cluster_name" {
-  description = "Cluster onde a API roda. O pipeline do -monolith usa em `aws eks update-kubeconfig`."
+  description = "Cluster onde os servicos rodam. Os pipelines deles usam em `aws eks update-kubeconfig`."
   value       = aws_eks_cluster.main.name
 }
 
 output "kubeconfig_command" {
   description = "Comando para apontar o kubectl ao cluster."
   value       = "aws eks update-kubeconfig --name ${aws_eks_cluster.main.name} --region ${var.region}"
-}
-
-output "database_endpoint" {
-  description = "Endpoint do RDS. Privado: alcancavel apenas de dentro da VPC."
-  value       = aws_db_instance.main.address
 }
 
 output "auth_lambda_name" {
@@ -30,19 +25,25 @@ output "vpc_link_id" {
 
 output "datadog_synthetic_test_id" {
   description = "Id do teste sintetico de /api/ping. Nasce e morre com o ambiente."
-  value       = local.dd_synthetics_enabled ? datadog_synthetics_test.ping[0].id : "desligado"
+  value       = nonsensitive(local.dd_synthetics_enabled ? datadog_synthetics_test.ping[0].id : "desligado")
+}
+
+output "alb_listener_arn" {
+  description = "Listener do ALB interno. Cada servico pendura nele a propria regra de caminho."
+  value       = aws_lb_listener.http.arn
 }
 
 output "next_steps" {
   description = "O que falta para o ambiente ficar utilizavel."
   value       = <<-EOT
-    O ambiente esta provisionado, mas ainda serve placeholders.
+    A plataforma esta no ar, mas nenhum servico foi implantado ainda.
 
-      1. -monolith:   push em main -> imagem no ECR, Job de migration, rollout
-      2. -serverless: push em main -> publica o codigo da Lambda
-      3. -frontend:   push em main -> s3 sync + invalidacao do CloudFront
+      1. -os-service:        infra/ (RDS, os-inbox, regra /*) e kustomize
+      2. -billing-service:   infra/ (RDS, billing-inbox, regra /billing/*) e kustomize
+      3. -execution-service: infra/ (DynamoDB, execution-inbox, regra /execution/*) e kustomize
+      4. -serverless:        publica o codigo da Lambda
+      5. -frontend:          s3 sync + invalidacao do CloudFront
 
-    Ate o passo 1, o Deployment roda registry.k8s.io/pause e nenhum target do
-    ALB fica saudavel -- isso e esperado.
+    Ate o passo 1, o listener do ALB responde 404 para tudo que nao e /auth/*.
   EOT
 }

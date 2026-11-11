@@ -49,7 +49,7 @@ resource "datadog_synthetics_test" "ping" {
 
   request_definition {
     method = "GET"
-    url    = "${local.dd_public_base_url}/api/ping"
+    url    = "${local.dd_public_base_url}/ping"
 
     timeout = 10
   }
@@ -92,8 +92,8 @@ resource "datadog_synthetics_test" "ping" {
     A URL publica de ${var.environment} parou de responder.
 
     Ordem de checagem: CloudFront -> API Gateway -> VPC Link -> ALB interno ->
-    pods. Se o bring-up acabou de rodar, o Deployment pode ainda estar com a
-    imagem `pause`: o 200 so aparece depois do rollout do -monolith.
+    pods. Se o bring-up acabou de rodar, o 200 so aparece depois do deploy do
+    oficina-mecanica-os-service, que cria a regra padrao no listener.
 
     Ambiente: ${var.environment} | Painel: ${var.project} [${var.environment}] Operacional
     Definido em ephemeral/datadog_synthetics.tf -- mude por PR, nao pela interface.

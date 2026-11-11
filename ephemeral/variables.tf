@@ -29,19 +29,7 @@ variable "node_instance_type" {
 }
 
 variable "node_desired_size" {
-  description = "Numero de nos. HPA vai de 2 a 10 replicas da API."
-  type        = number
-  default     = 2
-}
-
-variable "database_instance_class" {
-  description = "Classe da instancia RDS."
-  type        = string
-  default     = "db.t4g.micro"
-}
-
-variable "api_replicas" {
-  description = "Replicas iniciais da API. O HPA assume o controle depois."
+  description = "Numero de nos do node group."
   type        = number
   default     = 2
 }

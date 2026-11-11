@@ -42,7 +42,7 @@ resource "aws_eks_cluster" "main" {
 }
 
 # Provider OIDC do cluster: base do IRSA, usado pelo AWS Load Balancer
-# Controller e pelo ServiceAccount da API (que precisa de ses:SendEmail).
+# Controller e pelas roles que cada servico cria no proprio infra/.
 data "tls_certificate" "cluster" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
@@ -104,17 +104,20 @@ resource "aws_eks_node_group" "main" {
   depends_on = [aws_iam_role_policy_attachment.node]
 }
 
-# Da ao pipeline do -monolith permissao de fazer rollout e criar o Job de
-# migration, sem conceder admin do cluster.
-resource "aws_eks_access_entry" "monolith_ci" {
-  cluster_name  = aws_eks_cluster.main.name
-  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-gha-monolith"
-  type          = "STANDARD"
+resource "aws_eks_access_entry" "service_ci" {
+  for_each = toset(local.service_repositories)
+
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-gha-${each.key}"
+  type              = "STANDARD"
+  kubernetes_groups = [local.service_deployer_group]
 }
 
-resource "aws_eks_access_policy_association" "monolith_ci" {
+resource "aws_eks_access_policy_association" "service_ci" {
+  for_each = aws_eks_access_entry.service_ci
+
   cluster_name  = aws_eks_cluster.main.name
-  principal_arn = aws_eks_access_entry.monolith_ci.principal_arn
+  principal_arn = each.value.principal_arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
 
   access_scope {

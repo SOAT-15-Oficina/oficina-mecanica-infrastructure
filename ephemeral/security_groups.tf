@@ -34,14 +34,6 @@ resource "aws_security_group" "lambda" {
   tags = { Name = "${local.name}-lambda" }
 }
 
-resource "aws_security_group" "database" {
-  name        = "${local.name}-database"
-  description = "RDS; aceita apenas nos do EKS e a Lambda de autenticacao"
-  vpc_id      = aws_vpc.main.id
-
-  tags = { Name = "${local.name}-database" }
-}
-
 # --- ALB: so o VPC Link entra; so os nos saem ------------------------------
 
 resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link" {
@@ -55,7 +47,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_from_vpc_link" {
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_nodes" {
   security_group_id            = aws_security_group.alb.id
-  description                  = "Pods da API"
+  description                  = "Pods dos servicos"
   referenced_security_group_id = local.node_security_group_id
   ip_protocol                  = "tcp"
   from_port                    = 8080
@@ -84,29 +76,29 @@ resource "aws_vpc_security_group_ingress_rule" "nodes_from_alb" {
 
 # --- Lambda ------------------------------------------------------------------
 
-resource "aws_vpc_security_group_egress_rule" "lambda_all" {
-  security_group_id = aws_security_group.lambda.id
-  description       = "RDS e Secrets Manager"
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
-# --- RDS: nunca exposto -------------------------------------------------------
-
-resource "aws_vpc_security_group_ingress_rule" "database_from_nodes" {
-  security_group_id            = aws_security_group.database.id
-  description                  = "Pods da API"
-  referenced_security_group_id = local.node_security_group_id
+resource "aws_vpc_security_group_egress_rule" "lambda_to_alb" {
+  security_group_id            = aws_security_group.lambda.id
+  description                  = "OS Service pelo ALB interno"
+  referenced_security_group_id = aws_security_group.alb.id
   ip_protocol                  = "tcp"
-  from_port                    = 5432
-  to_port                      = 5432
+  from_port                    = 80
+  to_port                      = 80
 }
 
-resource "aws_vpc_security_group_ingress_rule" "database_from_lambda" {
-  security_group_id            = aws_security_group.database.id
+resource "aws_vpc_security_group_egress_rule" "lambda_https" {
+  security_group_id = aws_security_group.lambda.id
+  description       = "Secrets Manager pelo NAT"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_from_lambda" {
+  security_group_id            = aws_security_group.alb.id
   description                  = "Funcao de autenticacao"
   referenced_security_group_id = aws_security_group.lambda.id
   ip_protocol                  = "tcp"
-  from_port                    = 5432
-  to_port                      = 5432
+  from_port                    = 80
+  to_port                      = 80
 }

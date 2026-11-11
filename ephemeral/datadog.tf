@@ -24,26 +24,9 @@ locals {
 
   datadog_secret_name = "datadog-api-key"
 
-  dd_env     = var.environment
-  dd_service = "monolith"
+  dd_env = var.environment
 
   dd_service_lambda = "auth-lambda"
-}
-
-locals {
-  datadog_pod_labels = local.datadog_enabled ? {
-    "tags.datadoghq.com/env"     = local.dd_env
-    "tags.datadoghq.com/service" = local.dd_service
-  } : {}
-
-  datadog_pod_annotations = local.datadog_enabled ? {
-    "ad.datadoghq.com/api.logs" = jsonencode([
-      {
-        source  = "go"
-        service = local.dd_service
-      },
-    ])
-  } : {}
 }
 
 data "aws_secretsmanager_secret_version" "datadog" {
