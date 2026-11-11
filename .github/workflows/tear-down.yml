@@ -121,9 +121,8 @@ jobs:
             --query 'length(Addresses)' --output text)"
           [ "$COUNT" = "0" ] || { echo "Elastic IPs restantes: $COUNT"; LEFTOVERS=1; }
 
-          # O identificador do RDS e `<project>-<environment>` (ephemeral/rds.tf).
           COUNT="$(aws rds describe-db-instances \
-            --query "length(DBInstances[?DBInstanceIdentifier=='oficina-mecanica-${ENVIRONMENT}'])" --output text)"
+            --query "length(DBInstances[?starts_with(DBInstanceIdentifier, 'oficina-${ENVIRONMENT}-')])" --output text)"
           [ "$COUNT" = "0" ] || { echo "Instancias RDS restantes: $COUNT"; LEFTOVERS=1; }
 
           if [ "$LEFTOVERS" = "1" ]; then

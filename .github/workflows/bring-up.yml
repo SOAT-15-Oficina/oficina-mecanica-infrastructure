@@ -170,10 +170,11 @@ jobs:
           {
             echo "### Ambiente \`$ENVIRONMENT\`"
             echo
-            echo "- Painel e API: $BASE_URL"
-            echo "- Healthcheck: \`$BASE_URL/api/ping\`"
+            echo "- Painel: ${BASE_URL%/api}"
+            echo "- API: $BASE_URL"
+            echo "- Healthcheck: \`$BASE_URL/ping\`"
             echo
-            echo "O 200 em \`/api/ping\` so aparece depois do rollout do -monolith."
+            echo "O 200 em \`/api/ping\` so aparece depois do deploy do -os-service."
             echo "A disponibilidade continua sendo acompanhada pelo teste sintetico"
             echo "do Datadog (ephemeral/datadog_synthetics.tf), que checa a cada 5 min."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -243,10 +244,16 @@ jobs:
           # Numa atribuicao, o status da substituicao vira o status do comando
           # e o set -e pega.
 
-          # O monolito primeiro e sozinho: ele roda as migrations que criam a
-          # tabela `users`, sem a qual a Lambda de autenticacao nao funciona.
-          monolith_id="$(dispatch monolith)"
-          await monolith "$monolith_id"
+          # O OS Service primeiro e sozinho: ele cria a os-inbox e a regra
+          # padrao do listener, e roda as migrations da tabela `users`, sem a
+          # qual a Lambda de autenticacao nao funciona.
+          os_id="$(dispatch os-service)"
+          await os-service "$os_id"
+
+          billing_id="$(dispatch billing-service)"
+          execution_id="$(dispatch execution-service)"
+          await billing-service "$billing_id"
+          await execution-service "$execution_id"
 
           serverless_id="$(dispatch serverless)"
           frontend_id="$(dispatch frontend)"
