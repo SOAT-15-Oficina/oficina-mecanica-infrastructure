@@ -358,8 +358,11 @@ HTTP; o BDD usa o mesmo fake, para não depender da rede do Mercado Pago.
 
 O API Gateway continua sendo a única porta pública
 ([ADR-0003](../adr/0003-api-gateway-como-unica-porta-publica.md)). O ALB interno
-passa a ter uma regra por serviço, cada serviço declarando o seu `Ingress` no
-mesmo IngressGroup:
+continua sendo criado pelo Terraform da plataforma, porque o VPC Link precisa do
+ARN do listener no momento do plan. Cada serviço cria, no próprio Terraform, um
+target group e uma regra de caminho nesse listener, e o pod entra no target
+group por um `TargetGroupBinding` no `k8s/` do serviço, o mesmo mecanismo que a
+Fase 3 já usa:
 
 | Prefixo | Destino |
 |---|---|
@@ -396,15 +399,25 @@ ter, no próprio repositório:
 ```text
 infra/        Terraform com state próprio: banco do serviço, filas e tópico
               que ele possui, role IRSA, repositório ECR, segredos
-k8s/          Deployment, Service, HPA, ServiceAccount, ConfigMap e Ingress (kustomize)
+k8s/          Deployment, Service, HPA, PDB, ServiceAccount e TargetGroupBinding (kustomize)
 .github/      lint, test (cobertura >= 80%), quality (SonarQube), build e deploy
 ```
 
-A plataforma publica no SSM o que os serviços consomem (`vpc_id`, subnets,
-cluster, IngressGroup), como já faz hoje
-([ADR-0007](../adr/0007-contrato-entre-repositorios-via-ssm.md)). Os manifestos
-saem de `ephemeral/k8s.tf` e passam a ser YAML no repositório de cada serviço,
-aplicados pelo pipeline com `kubectl apply -k`.
+A plataforma publica no SSM o que os serviços consomem, como já faz hoje
+([ADR-0007](../adr/0007-contrato-entre-repositorios-via-ssm.md)). Aos parâmetros
+atuais (`vpc_id`, `private_subnet_ids`, `eks_cluster_name`, `kube_namespace`)
+somam-se quatro novos:
+
+| Parâmetro | Usado para |
+|---|---|
+| `eks_oidc_provider_arn` | trust policy da role IRSA de cada serviço |
+| `eks_node_security_group_id` | liberar a porta do RDS do serviço para os pods |
+| `alb_listener_arn` | regra de caminho do serviço no ALB interno |
+| `public_base_url` | links enviados por e-mail (aprovação, pagamento) |
+
+Os manifestos saem de `ephemeral/k8s.tf` e passam a ser YAML no repositório de
+cada serviço, aplicados pelo pipeline com `kubectl kustomize | kubectl apply`.
+O ECR também muda de dono: cada serviço cria o seu.
 
 **Quem cria cada fila:** o dono da fila é quem consome. `billing-inbox` nasce no
 Terraform do Billing; `os-inbox` e a assinatura nos tópicos nascem no do OS
