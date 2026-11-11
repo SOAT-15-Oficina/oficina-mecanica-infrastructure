@@ -132,17 +132,17 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "p50:oficina.http_request_duration{$env,service:monolith}"
+            q            = "p50:oficina.http_request_duration{$env,service:${local.dd_services.api}}"
             display_type = "line"
           }
 
           request {
-            q            = "p95:oficina.http_request_duration{$env,service:monolith}"
+            q            = "p95:oficina.http_request_duration{$env,service:${local.dd_services.api}}"
             display_type = "line"
           }
 
           request {
-            q            = "p99:oficina.http_request_duration{$env,service:monolith}"
+            q            = "p99:oficina.http_request_duration{$env,service:${local.dd_services.api}}"
             display_type = "line"
           }
 
@@ -163,7 +163,7 @@ resource "datadog_dashboard" "operational" {
           title = "Rotas mais lentas (p95)"
 
           request {
-            q = "top(p95:oficina.http_request_duration{$env,service:monolith} by {route}, 10, 'mean', 'desc')"
+            q = "top(p95:oficina.http_request_duration{$env,service:${local.dd_services.api}} by {route}, 10, 'mean', 'desc')"
           }
         }
       }
@@ -174,17 +174,17 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "count:oficina.http_request_duration{$env,service:monolith,status:2*}.as_count()"
+            q            = "count:oficina.http_request_duration{$env,service:${local.dd_services.api},status:2*}.as_count()"
             display_type = "bars"
           }
 
           request {
-            q            = "count:oficina.http_request_duration{$env,service:monolith,status:4*}.as_count()"
+            q            = "count:oficina.http_request_duration{$env,service:${local.dd_services.api},status:4*}.as_count()"
             display_type = "bars"
           }
 
           request {
-            q            = "count:oficina.http_request_duration{$env,service:monolith,status:5*}.as_count()"
+            q            = "count:oficina.http_request_duration{$env,service:${local.dd_services.api},status:5*}.as_count()"
             display_type = "bars"
           }
         }
@@ -198,7 +198,7 @@ resource "datadog_dashboard" "operational" {
 
           request {
             aggregator = "avg"
-            q          = "(count:oficina.http_request_duration{$env,service:monolith,status:5*}.as_count() / count:oficina.http_request_duration{$env,service:monolith}.as_count()) * 100"
+            q          = "(count:oficina.http_request_duration{$env,service:${local.dd_services.api},status:5*}.as_count() / count:oficina.http_request_duration{$env,service:${local.dd_services.api}}.as_count()) * 100"
 
             conditional_formats {
               comparator = ">"
@@ -373,7 +373,7 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "avg:aws.rds.database_connections{dbinstanceidentifier:${local.dd_rds_identifier}}"
+            q            = "avg:aws.rds.database_connections{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier}"
             display_type = "line"
           }
 
@@ -391,7 +391,7 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "avg:aws.rds.cpuutilization{dbinstanceidentifier:${local.dd_rds_identifier}}"
+            q            = "avg:aws.rds.cpuutilization{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier}"
             display_type = "line"
           }
 
@@ -409,12 +409,12 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "avg:aws.rds.read_iops{dbinstanceidentifier:${local.dd_rds_identifier}}"
+            q            = "avg:aws.rds.read_iops{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier}"
             display_type = "line"
           }
 
           request {
-            q            = "avg:aws.rds.write_iops{dbinstanceidentifier:${local.dd_rds_identifier}}"
+            q            = "avg:aws.rds.write_iops{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier}"
             display_type = "line"
           }
         }
@@ -426,7 +426,7 @@ resource "datadog_dashboard" "operational" {
           show_legend = true
 
           request {
-            q            = "avg:aws.rds.free_storage_space{dbinstanceidentifier:${local.dd_rds_identifier}}"
+            q            = "avg:aws.rds.free_storage_space{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier}"
             display_type = "area"
           }
 

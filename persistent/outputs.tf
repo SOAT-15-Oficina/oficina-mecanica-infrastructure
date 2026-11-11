@@ -71,6 +71,7 @@ output "datadog" {
     forwarder_arn         = local.datadog_enabled && var.datadog_forward_cloudwatch_logs ? aws_cloudformation_stack.datadog_forwarder[0].outputs["DatadogForwarderArn"] : "desligado"
     dashboard_operacional = local.datadog_enabled ? datadog_dashboard.operational[0].id : ""
     dashboard_negocio     = local.datadog_enabled ? datadog_dashboard.business[0].id : ""
+    dashboard_saga        = local.datadog_enabled ? datadog_dashboard.saga[0].id : ""
     logs_metrics          = local.manage_datadog_logs_metrics ? "declaradas por este ambiente" : "herdadas do ambiente que as possui (ver manage_datadog_logs_metrics)"
     synthetic_test_id     = "vive na camada efemera (ephemeral/datadog_synthetics.tf)"
     notification_targets  = join(" ", local.datadog_notification_targets)

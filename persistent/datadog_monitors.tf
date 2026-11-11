@@ -189,7 +189,7 @@ resource "datadog_monitor" "database_connections" {
   name = "[${var.environment}] Conexoes do banco perto do limite"
   type = "metric alert"
 
-  query = "avg(last_10m):avg:aws.rds.database_connections{dbinstanceidentifier:${local.dd_rds_identifier}} > ${floor(var.database_max_connections * 0.8)}"
+  query = "avg(last_10m):avg:aws.rds.database_connections{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier} > ${floor(var.database_max_connections * 0.8)}"
 
   message = <<-EOT
     {{#is_alert}}
@@ -219,7 +219,7 @@ resource "datadog_monitor" "database_storage" {
   name = "[${var.environment}] Espaco livre do banco abaixo de 20%"
   type = "metric alert"
 
-  query = "avg(last_15m):avg:aws.rds.free_storage_space{dbinstanceidentifier:${local.dd_rds_identifier}} < ${var.database_free_storage_alert_bytes}"
+  query = "avg(last_15m):avg:aws.rds.free_storage_space{dbinstanceidentifier:${local.dd_rds_identifier}} by {dbinstanceidentifier} < ${var.database_free_storage_alert_bytes}"
 
   message = <<-EOT
     {{#is_alert}}

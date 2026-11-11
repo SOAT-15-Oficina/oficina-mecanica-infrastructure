@@ -4,8 +4,10 @@ locals {
   dd_env = var.environment
 
   dd_services = {
-    api    = "monolith"
-    lambda = "auth-lambda"
+    api       = "os-service"
+    billing   = "billing-service"
+    execution = "execution-service"
+    lambda    = "auth-lambda"
   }
 
   datadog_notification_targets = length(var.datadog_notification_targets) > 0 ? var.datadog_notification_targets : (

@@ -6,7 +6,7 @@ locals {
   # ficar preso a um `env`. O recorte aqui e por servico, para nao ingerir log
   # de outro projeto da mesma conta; a separacao por ambiente vem do `group_by`
   # em `env`, que todo painel consulta como `{$env}`.
-  dd_log_metric_scope = "@service:(${local.dd_services.api} OR ${local.dd_services.lambda})"
+  dd_log_metric_scope = "@service:(${local.dd_services.api} OR ${local.dd_services.billing} OR ${local.dd_services.execution} OR ${local.dd_services.lambda})"
 
   datadog_event_counters = {
     "work_order.created"             = "Ordens de servico abertas"
@@ -136,5 +136,28 @@ resource "datadog_logs_metric" "http_request_duration" {
   group_by {
     path     = "@env"
     tag_name = "env"
+  }
+}
+
+resource "datadog_logs_metric" "saga_event" {
+  count = local.manage_datadog_logs_metrics ? 1 : 0
+
+  name = "oficina.saga_event"
+
+  filter {
+    query = "${local.dd_log_metric_scope} @event:saga.*"
+  }
+
+  compute {
+    aggregation_type = "count"
+  }
+
+  dynamic "group_by" {
+    for_each = toset(["event", "service", "env"])
+
+    content {
+      path     = "@${group_by.value}"
+      tag_name = group_by.value
+    }
   }
 }
