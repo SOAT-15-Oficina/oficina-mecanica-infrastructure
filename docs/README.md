@@ -43,7 +43,7 @@ Este diretório é a fonte da verdade. O PDF distribuído para leitura offline
 | Por que quatro repositórios e não um? | [RFC-0005](rfc/0005-segregacao-em-repositorios.md) |
 | Por que AWS, e não GCP ou Azure? | [RFC-0001](rfc/0001-escolha-da-nuvem.md) |
 | Por que PostgreSQL e não DynamoDB? | [RFC-0002](rfc/0002-escolha-do-banco-de-dados.md) |
-| Por que não existe fila nem broker? | [ADR-0002](adr/0002-comunicacao-sincrona-http.md) |
+| Por que o sistema virou microsserviços com Saga? | [RFC-0006](rfc/0006-microsservicos-e-saga.md), [ADR-0013](adr/0013-saga-orquestrada-no-os-service.md) |
 | Como uma requisição chega ao pod da API? | Componentes, [ADR-0003](adr/0003-api-gateway-como-unica-porta-publica.md) |
 | Por que o ambiente responde 404 desligado? | [ADR-0006](adr/0006-duas-camadas-de-terraform.md) |
 | Como um pipeline descobre o nome do cluster? | [ADR-0007](adr/0007-contrato-entre-repositorios-via-ssm.md) |
@@ -77,11 +77,12 @@ Este diretório é a fonte da verdade. O PDF distribuído para leitura offline
 | [RFC-0003](rfc/0003-estrategia-de-autenticacao.md) | Autenticação e autorização | Aceita | [ADR-0003](adr/0003-api-gateway-como-unica-porta-publica.md), 0009 |
 | [RFC-0004](rfc/0004-estrategia-de-observabilidade.md) | Observabilidade | Aceita | [ADR-0011](adr/0011-logs-estruturados-com-correlacao.md) |
 | [RFC-0005](rfc/0005-segregacao-em-repositorios.md) | Segregação em repositórios | Aceita | [ADR-0007](adr/0007-contrato-entre-repositorios-via-ssm.md), 0008 |
+| [RFC-0006](rfc/0006-microsservicos-e-saga.md) | Microsserviços e Saga orquestrada | Em discussão | [ADR-0012](adr/0012-tres-microsservicos-por-area-de-decisao.md) a 0017 |
 
 | ADR | Título | Estado | Impacta |
 |---|---|---|---|
 | [ADR-0001](adr/0001-registrar-decisoes-de-arquitetura.md) | Registrar decisões de arquitetura | Aceita | processo |
-| [ADR-0002](adr/0002-comunicacao-sincrona-http.md) | Comunicação síncrona HTTP, sem broker | Aceita | aplicação |
+| [ADR-0002](adr/0002-comunicacao-sincrona-http.md) | Comunicação síncrona HTTP, sem broker | Substituída por ADR-0012 | aplicação |
 | [ADR-0003](adr/0003-api-gateway-como-unica-porta-publica.md) | API Gateway como única porta pública | Aceita | rede, segurança |
 | [ADR-0004](adr/0004-hpa-no-deployment-da-api.md) | HPA no Deployment da API | Aceita | Kubernetes |
 | [ADR-0005](adr/0005-migrations-como-job-do-pipeline.md) | Migrations como Job do pipeline | Aceita | banco, pipeline |
@@ -91,6 +92,12 @@ Este diretório é a fonte da verdade. O PDF distribuído para leitura offline
 | [ADR-0009](adr/0009-jwt-hs256-com-segredo-compartilhado.md) | JWT HS256 com segredo compartilhado | Aceita | autenticação |
 | [ADR-0010](adr/0010-snapshot-de-precos-na-ordem-de-servico.md) | Snapshot de preços na ordem de serviço | Aceita | banco, domínio |
 | [ADR-0011](adr/0011-logs-estruturados-com-correlacao.md) | Logs estruturados com correlação | Proposta | observabilidade |
+| [ADR-0012](adr/0012-tres-microsservicos-por-area-de-decisao.md) | Três microsserviços por área de decisão | Proposta | aplicação, dados |
+| [ADR-0013](adr/0013-saga-orquestrada-no-os-service.md) | Saga orquestrada no OS Service | Proposta | aplicação |
+| [ADR-0014](adr/0014-sns-sqs-fifo-com-outbox.md) | SNS FIFO + SQS FIFO com outbox | Proposta | mensageria |
+| [ADR-0015](adr/0015-dynamodb-no-execution-postgresql-no-os-e-billing.md) | DynamoDB no Execution, PostgreSQL no OS e no Billing | Proposta | banco |
+| [ADR-0016](adr/0016-mercado-pago-checkout-pro.md) | Mercado Pago Checkout Pro | Proposta | pagamento, segurança |
+| [ADR-0017](adr/0017-infra-e-manifestos-no-repositorio-do-servico.md) | Infraestrutura e manifestos no repositório do serviço | Proposta | infraestrutura, CI/CD |
 
 Para propor a substituição de uma ADR: leia a seção de alternativas da ADR em
 vigor. Se a sua proposta já está listada ali, o argumento novo precisa atacar o
