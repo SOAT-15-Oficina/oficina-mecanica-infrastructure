@@ -1,19 +1,23 @@
 # oficina-mecanica-infrastructure
 
-Provisiona **todos** os recursos do sistema de gestão de oficina mecânica: AWS e
-Kubernetes. Os outros três repositórios armazenam código, constroem artefatos e
-fazem deploy nos recursos criados aqui.
+Provisiona a **plataforma compartilhada** do sistema de gestão de oficina
+mecânica: rede, cluster, borda, autenticação e observabilidade. Desde a Fase 4
+cada microsserviço cria o próprio banco, filas, IRSA, ECR e manifestos no
+repositório dele ([ADR-0017](docs/adr/0017-infra-e-manifestos-no-repositorio-do-servico.md));
+este repositório publica no SSM o que eles consomem.
 
 Este é também o repositório que documenta a **arquitetura do sistema completo** —
-os READMEs dos outros três são operacionais e apontam para cá.
+os READMEs dos outros são operacionais e apontam para cá.
 
-## Os quatro repositórios
+## Os repositórios
 
 | Repositório | Responsabilidade | Artefato |
 |---|---|---|
-| **oficina-mecanica-infrastructure** | Terraform, manifestos Kubernetes, IAM, rede | *(este)* |
-| [oficina-mecanica-monolith](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith) | API de OS, catálogos, usuários; **dono do schema do banco** | imagem no ECR |
-| [oficina-mecanica-serverless](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless) | `POST /auth/login` e `POST /auth/register` | zip da Lambda |
+| **oficina-mecanica-infrastructure** | plataforma: VPC, EKS, ALB interno, API Gateway, CloudFront, Lambda (a função), IAM dos pipelines, Datadog | *(este)* |
+| [oficina-mecanica-os-service](https://github.com/SOAT-15-Oficina/oficina-mecanica-os-service) (ex-`-monolith`) | OS, catálogos, clientes, veículos, usuários; **orquestrador da Saga** | imagem no ECR do serviço |
+| [oficina-mecanica-billing-service](https://github.com/SOAT-15-Oficina/oficina-mecanica-billing-service) | orçamento, decisão do cliente, Mercado Pago | imagem no ECR do serviço |
+| [oficina-mecanica-execution-service](https://github.com/SOAT-15-Oficina/oficina-mecanica-execution-service) | fila da bancada, diagnóstico e execução (DynamoDB) | imagem no ECR do serviço |
+| [oficina-mecanica-serverless](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless) | `POST /auth/login` e `POST /auth/register`; confere a senha no OS Service | zip da Lambda |
 | [oficina-mecanica-frontend](https://github.com/SOAT-15-Oficina/oficina-mecanica-frontend) | Painel web estático | objetos no S3 |
 
 ## Documentação da arquitetura
@@ -26,11 +30,11 @@ RFCs, ADRs e o modelo de dados — vive em [`docs/`](docs/):
 | [Índice completo](docs/README.md) | como o conjunto se organiza |
 | [Componentes](docs/diagramas/componentes.md) | visão de nuvem: borda, VPC, APIs, banco, observabilidade |
 | [Sequência — autenticação](docs/diagramas/sequencia-autenticacao.md) | login, emissão do JWT e consumo de rota protegida |
-| [Sequência — ordem de serviço](docs/diagramas/sequencia-ordem-de-servico.md) | abertura, orçamento, aprovação e execução |
+| [Sequência — ordem de serviço](docs/diagramas/sequencia-ordem-de-servico.md) | portas de entrada de cada ator; o fluxo da Saga está na [RFC-0006](docs/rfc/0006-microsservicos-e-saga.md) |
 | [Implantação](docs/diagramas/implantacao.md) | onde cada artefato roda e quem faz o deploy |
 | [Modelo de dados](docs/banco-de-dados.md) | justificativa do banco, ER, relacionamentos e ajustes |
-| [RFCs](docs/README.md#rfcs--propostas-técnicas) | nuvem, banco, autenticação, observabilidade, repositórios |
-| [ADRs](docs/README.md#adrs--decisões-arquiteturais) | 11 decisões em vigor |
+| [RFCs](docs/README.md#rfcs--propostas-técnicas) | nuvem, banco, autenticação, observabilidade, repositórios, microsserviços e Saga |
+| [ADRs](docs/README.md#adrs--decisões-arquiteturais) | 17 decisões |
 
 O restante deste README é **operacional**: o que este repositório provisiona e
 como operá-lo.
@@ -41,7 +45,8 @@ como operá-lo.
 flowchart TB
     subgraph browser [Cliente]
         U[Navegador]
-        MAIL[Cliente da oficina<br/>link de aprovacao por e-mail]
+        MAIL[Cliente da oficina<br/>links por e-mail]
+        MP[Mercado Pago]
     end
 
     subgraph edge [Borda - camada persistente]
@@ -52,51 +57,65 @@ flowchart TB
 
     subgraph vpc [VPC - camada efemera]
         LINK[VPC Link]
-        ALB[ALB interno]
-        subgraph eks [EKS]
-            POD[Deployment api<br/>HPA 2 a 10]
+        ALB[ALB interno<br/>listener padrao 404]
+        subgraph eks [EKS - namespace workshop]
+            OS[OS Service /*]
+            BI[Billing /billing/*]
+            EX[Execution /execution/*]
         end
         LMB[Lambda auth<br/>subnets privadas]
-        RDS[(RDS PostgreSQL<br/>sem acesso publico)]
         NAT[NAT Gateway]
     end
 
-    subgraph aws [Servicos AWS]
-        SES[SES<br/>acesso de producao]
-        SM[Secrets Manager]
-        ECR[(ECR)]
+    subgraph svc [Criado pelo infra/ de cada servico]
+        RDSO[(RDS do OS)]
+        RDSB[(RDS do Billing)]
+        DDB[(DynamoDB do Execution)]
+        Q[[SQS/SNS FIFO]]
     end
 
     U --> CF
     MAIL --> CF
+    MP --> CF
     CF -->|/*| S3
     CF -->|/api/* menos o prefixo| GW
     GW -->|POST /auth/*| LMB
-    GW -->|$default| LINK --> ALB --> POD
-    LMB --> RDS
-    POD --> RDS
-    POD -->|IRSA| SES
-    LMB --> SM
-    POD --> NAT --> ECR
+    GW -->|$default| LINK --> ALB
+    ALB --> OS
+    ALB --> BI
+    ALB --> EX
+    LMB -->|/internal/* + X-Service-Token| ALB
+    OS --> RDSO
+    BI --> RDSB
+    EX --> DDB
+    OS -.-> Q
+    BI -.-> Q
+    EX -.-> Q
 ```
 
 **EKS, ALB, RDS e o bucket S3 são inalcançáveis de fora.** A única porta pública
 é o API Gateway; o bucket só aceita o CloudFront, via Origin Access Control.
+Componentes, mensageria e fronteiras de rede em detalhe:
+[docs/diagramas/componentes.md](docs/diagramas/componentes.md).
 
 ### Caminho de uma requisição
 
 ```
 Navegador → CloudFront ─┬─ /*      → S3 (painel)
-                        └─ /api/*  → API Gateway ─┬─ POST /auth/*  → Lambda ──┐
-                                                  └─ $default → VPC Link →    │
-                                                       ALB interno → pods ────┤
-                                                                              └→ RDS
+                        └─ /api/*  → API Gateway ─┬─ POST /auth/*  → Lambda → ALB → OS Service (/internal/*)
+                                                  └─ $default → VPC Link → ALB interno ─┬─ /billing/*   → Billing
+                                                                                        ├─ /execution/* → Execution
+                                                                                        └─ /*           → OS Service
 ```
 
 Uma **CloudFront Function** remove o prefixo `/api` antes de repassar à origem.
-Por isso o monolito continua servindo `/customers` e a Lambda `/auth/login`, sem
-saber que existe um `/api` na frente — e o painel, servido da mesma origem, não
-precisa de CORS nem de URL de API configurada no build.
+Por isso o OS Service serve `/customers`, o Billing `/billing/...` e a Lambda
+`/auth/login`, sem saber que existe um `/api` na frente — e o painel, servido da
+mesma origem, não precisa de CORS nem de URL de API configurada no build.
+
+O listener do ALB nasce com ação padrão `fixed-response` 404. Cada serviço
+pendura nele, pelo próprio Terraform, um target group e uma regra de caminho, e
+o pod entra no target group por um `TargetGroupBinding` no `k8s/` do serviço.
 
 ## Arquitetura deste repositório
 
@@ -110,47 +129,47 @@ flowchart TB
     end
 
     subgraph PS ["persistent/ — ~US$ 1/mês, apply automático em push"]
-        P1[OIDC + 4 roles por ambiente]
-        P2[(ECR)]
+        P1[OIDC + 6 roles por ambiente]
         P3[S3 + CloudFront + Function]
         P4[API Gateway + stage]
-        P5[Secrets Manager]
+        P5[Secrets Manager: JWT e token de servico]
         P6[Identidades SES]
         P7[SSM — parâmetros estáveis]
-        P8[Datadog: painéis, monitores,<br/>métricas de log, integração AWS]
+        P8[Datadog: painéis, monitores, Saga,<br/>métricas de log, integração AWS]
         P9[Forwarder de logs do CloudWatch]
     end
 
     subgraph ES ["ephemeral/ — ~US$ 0,30/hora, bring-up manual"]
         E1[VPC, subnets, NAT, SGs]
         E2[EKS + node group + addons]
-        E3[ALB interno + TargetGroupBinding]
-        E4[(RDS PostgreSQL)]
+        E3[ALB interno + listener padrão 404]
         E5[Lambda auth]
         E6[VPC Link + rotas do gateway]
-        E7[Objetos K8s: ns, ConfigMap, Secret, Deployment, Service, HPA]
+        E7[Namespace + RBAC e access entries dos pipelines]
         E8[SSM — parâmetros do ciclo]
         E9[Agente Datadog: DaemonSet + cluster agent]
     end
 
     BS -.guarda o state de.-> PS
     BS -.guarda o state de.-> ES
-    PS -.API id, ECR, segredos.-> ES
-    P7 --> APPS[Pipelines dos outros 3 repositórios]
+    PS -.API id, segredos.-> ES
+    P7 --> APPS[Pipelines dos outros 5 repositórios]
     E8 --> APPS
     E9 -.métricas, logs e traces.-> P8
     P9 -.access log do gateway e da Lambda.-> P8
 ```
 
 O corte é por **ciclo de vida**, não por tipo de recurso — o racional está na
-[ADR-0006](docs/adr/0006-duas-camadas-de-terraform.md), e o desvio em relação ao
-enunciado da fase (infra de banco e de cluster no mesmo repositório) está
-registrado na [RFC-0005](docs/rfc/0005-segregacao-em-repositorios.md).
+[ADR-0006](docs/adr/0006-duas-camadas-de-terraform.md). Na Fase 3 banco e
+cluster viviam juntos aqui ([RFC-0005](docs/rfc/0005-segregacao-em-repositorios.md));
+na Fase 4 o banco e o workload de cada serviço foram para o repositório dele
+([RFC-0006, seção 9](docs/rfc/0006-microsservicos-e-saga.md#9-infraestrutura-por-repositório)).
 
 ## Deploy ativo e contratos de API
 
 Este repositório não expõe API própria. Ele **cria** a porta pública e publica a
-URL no SSM:
+URL da API (CloudFront + `/api`) no SSM; o painel fica na raiz do mesmo domínio
+(`public_domain`):
 
 ```bash
 aws ssm get-parameter --name /oficina-mecanica/prod/public_base_url \
@@ -163,7 +182,9 @@ terraform -chdir=persistent output public_base_url
 |---|---|
 | Produção | `/oficina-mecanica/prod/public_base_url` |
 | Homologação | `/oficina-mecanica/homolog/public_base_url` |
-| Swagger da API de negócio | `<URL_PUBLICA>/api/docs` · [fonte](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/blob/main/docs/swagger.yaml) |
+| Swagger do OS Service | `<URL_PUBLICA>/api/swagger` |
+| Swagger do Billing | `<URL_PUBLICA>/api/billing/swagger` |
+| Swagger do Execution | `<URL_PUBLICA>/api/execution/swagger` |
 | Contrato de `/auth/*` | [fonte](https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless/blob/main/docs/openapi.yaml) |
 
 Com o ambiente desligado, o domínio existe e responde 404 — comportamento
@@ -176,8 +197,9 @@ esse ciclo:
 
 | Camada | Diretório | Custo | Conteúdo |
 |---|---|---|---|
-| **Persistente** | `persistent/` | ~US$ 1/mês | state, OIDC + 4 roles, ECR, identidades SES, S3, CloudFront, **API Gateway**, Secrets Manager |
-| **Efêmera** | `ephemeral/` | ~US$ 0,30/hora | VPC, NAT, EKS, ALB interno, RDS, Lambda, VPC Link, rotas do API Gateway, todos os objetos Kubernetes |
+| **Persistente** | `persistent/` | ~US$ 1/mês | state, OIDC + 6 roles, identidades SES, S3, CloudFront, **API Gateway**, Secrets Manager (JWT e token de serviço), Datadog |
+| **Efêmera** | `ephemeral/` | ~US$ 0,30/hora | VPC, NAT, EKS, namespace e RBAC dos pipelines, ALB interno, Lambda, VPC Link, rotas do API Gateway, add-ons do cluster |
+| *(por serviço)* | `infra/` de cada serviço | dois RDS e DynamoDB sob demanda | banco, filas e tópico, IRSA, ECR, segredos, target group e regra no listener |
 | **Bootstrap** | `bootstrap/` | centavos | bucket de state e tabela de lock; aplicado uma vez, à mão |
 
 Três coisas foram para a camada persistente por razões concretas, não por
@@ -312,11 +334,12 @@ sobreviver ao ciclo fica em `persistent/`; o coletor, que é descartável, fica 
 |---|---|
 | `persistent/datadog.tf` | chave no Secrets Manager, integração AWS, Forwarder de logs, contrato no SSM |
 | `persistent/datadog_metrics.tf` | métricas geradas a partir dos eventos de domínio no log |
-| `persistent/datadog_dashboard_operacional.tf` · `_negocio.tf` | os dois painéis |
-| `persistent/datadog_monitors.tf` | os nove alertas e o teste sintético |
+| `persistent/datadog_dashboard_operacional.tf` · `_negocio.tf` · `_saga.tf` | os três painéis |
+| `persistent/datadog_monitors.tf` · `datadog_monitors_saga.tf` | os nove alertas da Fase 3 e os três da Saga |
 | `ephemeral/datadog.tf` | agente no cluster + assinatura do log da Lambda |
+| `ephemeral/datadog_synthetics.tf` | teste sintético de `/api/ping` |
 | `ephemeral/apigateway_routes.tf` | *parameter mapping* que injeta `$context.requestId` como header |
-| `ephemeral/k8s.tf` | `DD_ENV`/`DD_SERVICE`, `DD_AGENT_HOST` e as tags do pod |
+| `k8s/` de cada serviço | `DD_ENV`/`DD_SERVICE`, `DD_AGENT_HOST` e as tags do pod |
 
 ### De onde vem cada sinal
 
@@ -325,15 +348,16 @@ flowchart LR
     GW["API Gateway<br/>access log JSON"] --> FWD
     LMB["Lambda de auth<br/>slog JSON"] --> FWD
     FWD["Forwarder<br/>(persistente)"] --> DD
-    APP["Pods da API<br/>slog JSON + traces"] --> AG
+    APP["Pods dos 3 serviços<br/>slog JSON + traces"] --> AG
     K8S["cAdvisor +<br/>kube-state-metrics"] --> AG
     AG["Agente DaemonSet<br/>(efêmero)"] --> DD
-    RDS[("RDS, ALB, SES,<br/>CloudFront")] --> INT
+    RDS[("RDS, ALB, SES, SQS,<br/>CloudFront")] --> INT
     INT["Integração AWS<br/>(CloudWatch)"] --> DD
     SYN["Teste sintético<br/>sa-east-1"] --> DD
     DD[("Datadog")] --> D1["Painel operacional"]
     DD --> D2["Painel de negócio"]
-    DD --> AL["9 alertas"]
+    DD --> D3["Painel da Saga"]
+    DD --> AL["12 alertas"]
 ```
 
 Os dois caminhos existem porque nenhum sozinho cobre tudo: o agente enxerga o
@@ -361,9 +385,19 @@ Os três saem de **métricas de log**, e não de consulta a log: o Datadog conta
 evento na ingestão e guarda só o número, com retenção de métrica (15 meses) em
 vez de retenção de log (dias). O log continua lá para a investigação.
 
+**Saga** — eventos `saga.*` por tipo (métrica de log `oficina.saga_event`),
+mensagens visíveis e idade da mais antiga em cada `*-inbox.fifo`, profundidade
+das `*-inbox-dlq.fifo` e o stream dos logs da Saga com `@saga_id`,
+`@work_order_id` e `@message_type`.
+
+Os serviços do Datadog são `os-service`, `billing-service`, `execution-service`
+e `auth-lambda`. Os painéis e alertas de RDS agrupam por instância
+`oficina-<ambiente>-*`, porque OS e Billing têm cada um o seu banco.
+
 ### Os alertas
 
-Nove, da tabela da RFC-0004. O primeiro é o exigido nominalmente pela fase:
+Nove da tabela da RFC-0004 e três da Saga (RFC-0006, seção 11). O primeiro é
+o exigido nominalmente pela Fase 3:
 
 | Alerta | Condição | Prioridade |
 |---|---|---|
@@ -376,6 +410,9 @@ Nove, da tabela da RFC-0004. O primeiro é o exigido nominalmente pela fase:
 | Pod reiniciando | ≥ 3 reinícios em 15 min | 3 |
 | Conexões do banco | > 80% de `max_connections` | 2 |
 | Espaço livre do RDS | < 20% | 4 |
+| **Mensagem da Saga em DLQ** | qualquer `*-inbox-dlq.fifo` com mensagem visível | 2 |
+| Inbox da Saga com mensagem antiga | mensagem mais antiga de uma `*-inbox.fifo` > 5 min | 2 |
+| Erro na Saga | log `status:error @event:saga.*` em 5 min | 2 |
 
 Duas regras valem para todos, e as duas são consequência do ambiente subir e
 descer:
@@ -395,8 +432,9 @@ ausência de dado, cobrindo o silêncio dos outros. Fica desligado por padrão
 
 Tudo acima consulta campos do JSON do `slog`, na taxonomia da
 [ADR-0011](docs/adr/0011-logs-estruturados-com-correlacao.md). **Enquanto o
-monolito e a Lambda não os emitirem, as métricas existem e ficam em zero** — que
-é o estado correto, e não uma falha de configuração.
+serviços e a Lambda não os emitirem, as métricas existem e ficam em zero** — que
+é o estado correto, e não uma falha de configuração. Os da Saga dependem de
+`@event:saga.*` nos logs do OS Service.
 
 O `slog` das duas aplicações está em PR aberto:
 [monolith#4](https://github.com/SOAT-15-Oficina/oficina-mecanica-monolith/pull/4)
@@ -414,6 +452,7 @@ como header — mora aqui, em `ephemeral/apigateway_routes.tf`.
 | `@duration_ms` + `@from` + `@to` (em `work_order.status_changed`) | tempo médio por status |
 | `@integration` (em `status:error`) | painel de falhas de integração |
 | `@work_order_id` | alerta de falha no processamento |
+| `@event:saga.*`, `@saga_id`, `@message_type` | painel e alerta da Saga |
 
 ### Ligar num ambiente
 
@@ -465,9 +504,11 @@ nascesse de um `Ingress`, quem o criaria seria o AWS Load Balancer Controller, d
 forma assíncrona — e o ARN não existiria no `plan`, exigindo descoberta por tag
 com retry ou um apply em duas fases.
 
-Então o Terraform cria `aws_lb` (internal) + target group (`target_type = ip`) +
-listener, e o controller entra apenas pelo CR **`TargetGroupBinding`**, mantendo
-o target group populado com os IPs dos pods conforme o HPA escala.
+Então o Terraform cria `aws_lb` (internal) + listener com ação padrão 404, e
+publica o ARN do listener no SSM (`alb_listener_arn`). Cada serviço cria no
+próprio `infra/` um target group (`target_type = ip`) e uma regra de caminho, e
+o controller entra apenas pelo CR **`TargetGroupBinding`** do `k8s/` do serviço,
+mantendo o target group populado com os IPs dos pods conforme o HPA escala.
 
 Efeito colateral valioso: como o Terraform é dono do ALB, o `destroy` remove na
 ordem certa — e o problema clássico de **ENI órfã travando a deleção da subnet**
@@ -475,27 +516,20 @@ ordem certa — e o problema clássico de **ENI órfã travando a deleção da s
 
 ### Terraform é dono da forma; o CD é dono do artefato
 
-O `Deployment` e a `aws_lambda_function` são recursos deste repositório, criados
-com **placeholders** (`registry.k8s.io/pause:3.9` e um zip que responde 503) e
-com `lifecycle.ignore_changes` nos campos que o CD controla:
-
-| Recurso | Propriedade do Terraform | Propriedade do CD |
-|---|---|---|
-| `kubernetes_deployment.api` | probes, recursos, `envFrom`, ServiceAccount | tag da imagem, réplicas (HPA) |
-| `aws_lambda_function.auth` | VPC, memória, timeout, role, env | zip do código |
-
-Assim um `terraform apply` nunca reverte um release, e um deploy nunca altera
-probes ou HPA. `wait_for_rollout = false` no Deployment porque, com o
-placeholder, nenhum pod fica *Ready* e o apply esperaria até o timeout.
+A `aws_lambda_function` é recurso deste repositório, criada com um zip
+placeholder que responde 503 e `lifecycle.ignore_changes` no código: VPC,
+memória, timeout, role e variáveis de ambiente são daqui; o zip é do pipeline
+do `-serverless`. Os workloads dos serviços saíram daqui: Deployment, Service,
+HPA e PDB são YAML no `k8s/` de cada repositório
+([ADR-0017](docs/adr/0017-infra-e-manifestos-no-repositorio-do-servico.md)).
 
 ### NAT Gateway, não VPC endpoints
 
-Um cluster sem saída para a internet não consegue puxar três imagens
+Um cluster sem saída para a internet não consegue puxar as imagens
 obrigatórias, e endpoint de ECR não dá acesso a registry público:
 
 | Imagem | Origem |
 |---|---|
-| `registry.k8s.io/pause:3.9` | placeholder do Deployment |
 | `registry.k8s.io/metrics-server/...` | necessário para o HPA |
 | `public.ecr.aws/eks/aws-load-balancer-controller` | quem popula o target group |
 
@@ -505,19 +539,48 @@ de tráfego (as camadas de imagem do ECR são servidas pelo S3).
 
 ### Contrato entre repositórios via SSM
 
-Os pipelines de aplicação não têm Terraform nem acesso ao bucket de state (que
+Os pipelines de aplicação não têm acesso ao bucket de state da plataforma (que
 contém segredos). Leem daqui:
 
 | Parâmetro | Camada | Consumidor |
 |---|---|---|
-| `ecr_repository_url` | persistente | monolith |
-| `eks_cluster_name`, `kube_namespace`, `api_deployment_name` | efêmera | monolith |
+| `eks_cluster_name`, `eks_cluster_endpoint`, `kube_namespace` | efêmera | os três serviços |
+| `vpc_id`, `private_subnet_ids` | efêmera | `infra/` dos serviços (banco, target group) |
+| `eks_oidc_provider_arn` | efêmera | trust policy da role IRSA de cada serviço |
+| `eks_node_security_group_id` | efêmera | SG do RDS de cada serviço libera a 5432 para os pods |
+| `alb_listener_arn` | efêmera | regra de caminho de cada serviço no ALB interno |
+| `alb_dns_name` | efêmera | diagnóstico; a Lambda recebe `OS_INTERNAL_BASE_URL` direto do Terraform |
+| `public_base_url` | persistente | `APP_BASE_URL` dos serviços: CloudFront + `/api`, base dos links por e-mail |
+| `jwt_secret_arn` | persistente | Lambda e os três serviços |
+| `internal_service_token_secret_arn` | persistente | Lambda e OS Service |
 | `auth_lambda_name` | persistente | serverless |
 | `frontend_bucket_name`, `cloudfront_distribution_id`, `public_domain` | persistente | frontend |
-| `jwt_secret_arn`, `database_secret_arn` | persistente | Lambda, cluster |
+
+`eks_node_security_group_id` é o **security group do cluster**
+(`eks-cluster-sg-<cluster>`), e não um SG próprio dos nós: um node group sem
+launch template ignora SG customizado, e os pods usam IPs secundários da ENI do
+nó, então é esse o SG de origem do tráfego que chega ao RDS.
+
+Saíram na Fase 4: `ecr_repository_url` (cada serviço tem o seu ECR),
+`api_deployment_name`, `api_service_name`, `database_endpoint`, `database_name`
+e `database_secret_arn` (a plataforma não tem mais banco nem workload). Cada
+serviço publica os próprios parâmetros com o prefixo do nome dele
+(`billing_*`, `execution_*`, `os_*`).
 
 Prefixo: `/oficina-mecanica/<ambiente>/` — `prod` ou `homolog`. Os pipelines o
 montam a partir da branch; nenhum deles carrega o nome de um ambiente fixo.
+
+### Token de serviço
+
+O OS Service expõe `POST /internal/credentials/verify` e `POST /internal/users`
+para a Lambda, protegidos pelo header `X-Service-Token`. O segredo
+`oficina-mecanica/<ambiente>/internal-service-token` **nasce na camada
+persistente**, como o do JWT, e tem dois leitores: a Lambda (por
+`INTERNAL_SERVICE_TOKEN_SECRET_ID`) e o OS Service (o pipeline dele lê o ARN em
+`internal_service_token_secret_arn` e materializa o valor em
+`INTERNAL_SERVICE_TOKEN`). Na plataforma ele não depende do ciclo da camada
+efêmera nem da ordem de deploy dos serviços, e girar o valor é um `taint` do
+`random_password` seguido de um redeploy dos dois leitores.
 
 ### Autenticação dos pipelines
 
@@ -525,19 +588,31 @@ montam a partir da branch; nenhum deles carrega o nome de um ambiente fixo.
 
 | Role | Pode |
 |---|---|
-| `gha-monolith` | push no ECR, `eks:DescribeCluster`, editar o namespace `workshop` |
+| `gha-os-service`, `gha-billing-service`, `gha-execution-service` | aplicar o próprio `infra/` (state em `<ambiente>/<repo>/`, ECR, filas e tópico, RDS ou DynamoDB, role IRSA, segredos e parâmetros com o nome do serviço, target group e regras no listener da plataforma), ler o segredo do JWT, e editar o namespace `workshop` (inclui `TargetGroupBinding`); o OS também lê o token de serviço e assina a `os-inbox` nos tópicos dos outros dois |
 | `gha-serverless` | `lambda:UpdateFunctionCode` numa função específica |
 | `gha-frontend` | escrever num bucket específico, invalidar uma distribuição |
 | `gha-infrastructure` | admin — é quem cria tudo; o freio é o required reviewer |
 
-São **quatro roles por ambiente** — os nomes acima são o sufixo de
+São **seis roles por ambiente** — os nomes acima são o sufixo de
 `oficina-mecanica-<ambiente>-`. Cada role confia apenas em workflows do seu
 repositório, na branch daquele ambiente (`main` para produção, `hml` para
 homologação) ou sob o GitHub Environment correspondente.
 
+O `-monolith` foi renomeado para `-os-service` no GitHub, e o ID numérico do
+repositório sobrevive ao rename: o `sub` imutável continua valendo com o mesmo
+ID. Os dois repositórios novos ainda não estão em `github_repository_ids`;
+enquanto não estiverem, a trust policy deles aceita só o formato clássico do
+`sub`. Acrescente os IDs (`gh api repos/<org>/<repo> --jq .id`) depois de
+criá-los.
+
+A role de deploy dos serviços cria roles IAM com política inline, restrita ao
+prefixo `oficina-<ambiente>-<serviço>`; não pode anexar política gerenciada. O
+próximo passo de endurecimento é um *permissions boundary* obrigatório nessas
+roles.
+
 `AWS_DEPLOY_ROLE_ARN` é um **secret de GitHub Environment**, não de repositório:
 os dois ambientes usam o mesmo nome e só o escopo do Environment os separa. Em
-cada um dos 4 repositórios, nos Environments `production` e `homolog`, com os
+cada um dos repositórios, nos Environments `production` e `homolog`, com os
 valores do output `github_role_arns` do ambiente correspondente. `AWS_REGION`
 continua sendo uma variable de repositório — a região é a mesma nos dois.
 
@@ -546,20 +621,18 @@ cada role ao nome do repositório **e** ao ambiente.
 
 ### E-mail
 
-O monolito envia pela **API do SES v2 via IRSA**: o pod assume uma role através
-de um ServiceAccount anotado, e não existe credencial estática em lugar nenhum.
-
-`EMAIL_PROVIDER = "ses"` é fixado no ConfigMap em `ephemeral/k8s.tf`, e a mesma
-camada é aplicada aos dois ambientes: **homologação e produção enviam pelo SES,
-sem exceção**. O `mailhog` existe apenas no `local/docker-compose.local.yml`.
+O OS Service (status ao cliente) e o Billing (orçamento e link de pagamento)
+enviam pela **API do SES v2 via IRSA**: cada pod assume a role do próprio
+serviço através de um ServiceAccount anotado, e não existe credencial estática
+em lugar nenhum. **Homologação e produção enviam pelo SES, sem exceção**; o
+`mailhog` existe apenas no `local/docker-compose.local.yml`.
 
 A conta tem **acesso de produção concedido** no SES (`sa-east-1`), com cota de
 50.000 e-mails/24h a 14/segundo — a fila de sandbox (200/24h, 1/s, só
 destinatários verificados) não se aplica mais. Entrega para qualquer
 destinatário; o que continua exigindo verificação é o **remetente**
 (`var.ses_sender_email`), e um `MessageRejected` ainda é possível — remetente
-não verificado, destinatário em lista de supressão, conta pausada. O provider do
-monolito propaga esse erro em vez de engoli-lo.
+não verificado, destinatário em lista de supressão, conta pausada.
 
 Verificar um remetente **não é automatizável** — o endereço recebe um link que
 alguém precisa clicar. Por isso as identidades vivem na camada persistente.
@@ -574,14 +647,16 @@ Cada ambiente tem o próprio *configuration set* (`oficina-mecanica-homolog` e
 
 ### Segredos
 
-`DATABASE_PASSWORD` e `JWT_SECRET_KEY` vêm do Secrets Manager e são
-materializados no cluster como `kubernetes_secret` pelo Terraform.
+Na plataforma ficam dois segredos de aplicação, ambos gerados por
+`random_password` na camada persistente: o **JWT** (`oficina-mecanica-<ambiente>/jwt-secret`,
+assinado pela Lambda e validado pelos três serviços) e o **token de serviço**
+(`oficina-mecanica/<ambiente>/internal-service-token`, Lambda e OS Service). A
+credencial de cada banco é gerada pelo `infra/` do serviço dono dele.
 
 **Consequência assumida:** o valor em claro passa pelo `tfstate`. Por isso o
 bucket de state tem versionamento, SSE e uma policy que nega qualquer acesso
-fora de TLS — e por isso a role de infraestrutura é a única que o lê.
-
-O JWT secret tem **dois leitores**: a Lambda assina, o monolito valida.
+fora de TLS — e por isso a role de infraestrutura é a única que lê o state da
+plataforma.
 
 A **chave de API do Datadog** segue o mesmo caminho, e por um motivo concreto: o
 agente dentro do cluster precisa lê-la em tempo de execução, e o Forwarder a lê
@@ -600,17 +675,14 @@ ela não entra no cluster.
 docker compose -f local/docker-compose.local.yml up --build
 # http://localhost:8080   painel + API
 # http://localhost:8025   MailHog (substitui o SES)
+# http://localhost:8095   Mercado Pago falso
 ```
 
-Sobe painel + Lambda + monolito + Postgres + MailHog atrás de um **nginx que
-replica o roteamento do CloudFront**, inclusive a remoção do prefixo `/api`.
-Local e produção têm as mesmas URLs, e o front não precisa de configuração
-condicional.
-
-Assume os quatro repositórios clonados lado a lado. Uma peça extra:
-`local/lambda-shim/` converte HTTP em evento `APIGatewayV2HTTPRequest`, porque o
-Lambda Runtime Interface Emulator não fala HTTP comum — é o papel que o API
-Gateway cumpre em produção.
+Sobe painel, Lambda, OS Service, Billing, Execution, os dois PostgreSQL,
+LocalStack (filas e tópicos FIFO, assinaturas e a tabela DynamoDB), MailHog e o
+Mercado Pago falso, atrás de um **nginx que replica o roteamento do CloudFront e
+do API Gateway**, inclusive a remoção do prefixo `/api`. URLs, valores fixos e
+como simular o pagamento: [`local/README.md`](local/README.md).
 
 Para trabalhar em um repositório isolado, cada um tem seu próprio
 `docker-compose.yml`.
@@ -619,8 +691,9 @@ Para trabalhar em um repositório isolado, cada um tem seu próprio
 
 | | |
 |---|---|
-| Camada persistente, parada | US$ 1/mês por ambiente (Secrets Manager US$ 0,80 + S3/ECR) |
-| Camada efêmera, ligada | US$ 0,30/hora (EKS US$ 0,10 + 2× t3.medium + NAT + ALB + RDS) |
+| Camada persistente, parada | US$ 1/mês por ambiente (Secrets Manager + S3) |
+| Camada efêmera, ligada | ~US$ 0,28/hora (EKS US$ 0,10 + 2× t3.medium + NAT + ALB) |
+| Serviços, ligados | dois RDS `db.t4g.micro` (OS e Billing); DynamoDB, SQS e SNS sob demanda |
 | Datadog | trial de 14 dias sem cartão; depois, por host e por GB de log ingerido |
 
 Uma janela de uso de 4 horas custa cerca de **US$ 1,20**.
