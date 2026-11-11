@@ -102,17 +102,21 @@ sequenceDiagram
     GHA->>TF: apply da camada efêmera
     TF->>AWS: VPC, NAT, EKS, ALB (listener 404), Lambda, VPC Link
     TF->>AWS: publica no SSM (inclui eks_oidc_provider_arn,<br/>eks_node_security_group_id, alb_listener_arn)
-    GHA->>APP: os-service primeiro e sozinho
-    APP->>AWS: infra/ (RDS, os-inbox, assinaturas, regra /*), imagem, Job migrate, kustomize
     GHA->>APP: billing-service e execution-service em paralelo
     APP->>AWS: infra/ (banco, inbox, tópico, regra de prefixo), imagem, kustomize
+    GHA->>APP: os-service depois dos dois
+    APP->>AWS: infra/ (RDS, os-inbox, assinaturas, regra /*), imagem, Job migrate, kustomize
     GHA->>APP: serverless e frontend
     APP->>AWS: zip da Lambda e s3 sync
     GHA-->>DEV: URLs do painel e da API no resumo do run
 ```
 
-O OS Service vai primeiro porque cria a `os-inbox`, a regra padrão do listener
-e a tabela `users`, da qual a Lambda depende por `/internal/credentials/verify`.
+Billing e Execution vão antes do OS Service porque o `infra/` do OS lê do SSM as
+filas de entrada e os tópicos de eventos dos dois (`billing_inbox_queue_arn`,
+`billing_events_topic_arn`, `execution_inbox_queue_arn`,
+`execution_events_topic_arn`) para assinar a `os-inbox` e ganhar permissão de
+envio. Até o OS subir, a regra padrão do listener responde 404 e a Lambda não
+autentica, porque a tabela `users` mora no banco do OS.
 
 **Tear-down:** o `tear-down.yml` remove os `TargetGroupBinding` e destrói a
 camada efêmera. Os recursos que os serviços criaram dentro da VPC (RDS,

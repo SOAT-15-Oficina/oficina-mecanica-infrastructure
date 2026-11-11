@@ -244,16 +244,13 @@ jobs:
           # Numa atribuicao, o status da substituicao vira o status do comando
           # e o set -e pega.
 
-          # O OS Service primeiro e sozinho: ele cria a os-inbox e a regra
-          # padrao do listener, e roda as migrations da tabela `users`, sem a
-          # qual a Lambda de autenticacao nao funciona.
-          os_id="$(dispatch os-service)"
-          await os-service "$os_id"
-
           billing_id="$(dispatch billing-service)"
           execution_id="$(dispatch execution-service)"
           await billing-service "$billing_id"
           await execution-service "$execution_id"
+
+          os_id="$(dispatch os-service)"
+          await os-service "$os_id"
 
           serverless_id="$(dispatch serverless)"
           frontend_id="$(dispatch frontend)"
