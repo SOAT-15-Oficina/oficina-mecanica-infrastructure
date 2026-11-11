@@ -7,11 +7,6 @@ resource "random_password" "jwt" {
   special = false
 }
 
-resource "random_password" "database" {
-  length  = 32
-  special = false
-}
-
 # Assinado pela Lambda (oficina-mecanica-serverless), validado pelo monolito.
 # Um segredo, dois leitores.
 resource "aws_secretsmanager_secret" "jwt" {
@@ -25,18 +20,18 @@ resource "aws_secretsmanager_secret_version" "jwt" {
   secret_string = random_password.jwt.result
 }
 
-# Formato consumido por internal/config do -serverless: {"username","password"}.
-resource "aws_secretsmanager_secret" "database" {
-  name                    = "${local.name}/database"
-  description             = "Credencial do RDS, lida pela Lambda e materializada no cluster"
+resource "random_password" "internal_service_token" {
+  length  = 64
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "internal_service_token" {
+  name                    = "${var.project}/${var.environment}/internal-service-token"
+  description             = "Token de servico entre a Lambda de auth e as rotas /internal do OS Service"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "database" {
-  secret_id = aws_secretsmanager_secret.database.id
-
-  secret_string = jsonencode({
-    username = "techchallenge"
-    password = random_password.database.result
-  })
+resource "aws_secretsmanager_secret_version" "internal_service_token" {
+  secret_id     = aws_secretsmanager_secret.internal_service_token.id
+  secret_string = random_password.internal_service_token.result
 }

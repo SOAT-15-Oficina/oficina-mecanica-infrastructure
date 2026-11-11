@@ -1,16 +1,11 @@
 output "public_base_url" {
-  description = "URL publica do sistema. Painel na raiz, API sob /api."
-  value       = "https://${aws_cloudfront_distribution.site.domain_name}"
+  description = "URL publica da API (CloudFront + /api). O painel fica na raiz do mesmo dominio."
+  value       = "https://${aws_cloudfront_distribution.site.domain_name}/api"
 }
 
 output "api_gateway_id" {
   description = "ID do HTTP API. A camada efemera cria rotas e integracoes nele."
   value       = aws_apigatewayv2_api.main.id
-}
-
-output "ecr_repository_url" {
-  description = "Repositorio de imagens do monolito."
-  value       = aws_ecr_repository.api.repository_url
 }
 
 output "frontend_bucket_name" {
@@ -40,13 +35,13 @@ output "deploy_contract" {
 }
 
 output "jwt_secret_arn" {
-  description = "Segredo compartilhado entre a Lambda de auth e o monolito."
+  description = "Segredo compartilhado entre a Lambda de auth e os tres servicos."
   value       = aws_secretsmanager_secret.jwt.arn
 }
 
-output "database_secret_arn" {
-  description = "Credencial do RDS."
-  value       = aws_secretsmanager_secret.database.arn
+output "internal_service_token_secret_arn" {
+  description = "Token de servico que a Lambda envia em X-Service-Token e o OS Service confere."
+  value       = aws_secretsmanager_secret.internal_service_token.arn
 }
 
 output "ses_verified_emails" {
