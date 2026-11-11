@@ -17,7 +17,7 @@ variable "project" {
 }
 
 variable "github_org" {
-  description = "Organizacao GitHub dona dos quatro repositorios."
+  description = "Organizacao GitHub dona dos repositorios."
   type        = string
   default     = "SOAT-15-Oficina"
 }
@@ -60,11 +60,11 @@ variable "github_org_id" {
 }
 
 variable "github_repository_ids" {
-  description = "ID numerico de cada repositorio, na mesma chave de local.repositories."
+  description = "ID numerico de cada repositorio, na mesma chave de local.repositories. Repositorio sem ID confia so no formato classico do sub."
   type        = map(number)
   default = {
     infrastructure = 1349770613
-    monolith       = 1349770766
+    "os-service"   = 1349770766
     serverless     = 1349770930
     frontend       = 1349770282
   }

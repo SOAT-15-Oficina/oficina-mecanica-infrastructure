@@ -1,4 +1,4 @@
-# Autenticacao dos pipelines por OIDC. Nenhum dos quatro repositorios guarda
+# Autenticacao dos pipelines por OIDC. Nenhum dos repositorios guarda
 # access key: cada um assume a propria role, restrita ao que aquele pipeline
 # precisa fazer.
 
@@ -54,12 +54,16 @@ data "aws_iam_policy_document" "github_assume_role" {
       # fallback caso a conta volte a emitir no formato antigo. Uma lista em
       # StringLike e um OU, entao aceitar as duas nao afrouxa nada -- org,
       # repositorio e contexto continuam presos em ambas.
-      values = [
-        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:ref:refs/heads/${local.deploy_branch}",
-        "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:environment:${local.github_environment}",
-        "repo:${var.github_org}/${each.value}:ref:refs/heads/${local.deploy_branch}",
-        "repo:${var.github_org}/${each.value}:environment:${local.github_environment}",
-      ]
+      values = concat(
+        lookup(var.github_repository_ids, each.key, null) == null ? [] : [
+          "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:ref:refs/heads/${local.deploy_branch}",
+          "repo:${var.github_org}@${var.github_org_id}/${each.value}@${var.github_repository_ids[each.key]}:environment:${local.github_environment}",
+        ],
+        [
+          "repo:${var.github_org}/${each.value}:ref:refs/heads/${local.deploy_branch}",
+          "repo:${var.github_org}/${each.value}:environment:${local.github_environment}",
+        ],
+      )
     }
   }
 }
@@ -91,52 +95,6 @@ resource "aws_iam_role_policy_attachment" "ssm_read" {
 
   role       = aws_iam_role.github[each.key].name
   policy_arn = aws_iam_policy.ssm_read.arn
-}
-
-# --- monolith: publica imagem no ECR e faz rollout no EKS -------------------
-
-data "aws_iam_policy_document" "monolith_deploy" {
-  statement {
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-
-  statement {
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:CompleteLayerUpload",
-      "ecr:InitiateLayerUpload",
-      "ecr:PutImage",
-      "ecr:UploadLayerPart",
-      "ecr:BatchGetImage",
-      "ecr:GetDownloadUrlForLayer",
-    ]
-    resources = [aws_ecr_repository.api.arn]
-  }
-
-  # O acesso ao cluster em si e concedido por EKS access entry na camada
-  # efemera; aqui basta poder montar o kubeconfig.
-  #
-  # ListClusters entra junto porque o `aws eks update-kubeconfig` o chama antes
-  # de DescribeCluster, e sem ele o deploy morre com "no identity-based policy
-  # allows the eks:ListClusters action" -- mesmo tendo DescribeCluster em "*".
-  # Ambas sao somente-leitura e nao dao acesso a API do Kubernetes.
-  statement {
-    effect = "Allow"
-    actions = [
-      "eks:DescribeCluster",
-      "eks:ListClusters",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role_policy" "monolith_deploy" {
-  name   = "deploy"
-  role   = aws_iam_role.github["monolith"].id
-  policy = data.aws_iam_policy_document.monolith_deploy.json
 }
 
 # --- serverless: so troca o codigo da funcao --------------------------------

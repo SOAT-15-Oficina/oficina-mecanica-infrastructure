@@ -24,10 +24,18 @@ locals {
   manage_ses_identities = var.manage_ses_identities == null ? local.is_production : var.manage_ses_identities
 
   # Um repositorio, uma role, um conjunto minimo de permissoes.
-  repositories = {
-    infrastructure = "${var.project}-infrastructure"
-    monolith       = "${var.project}-monolith"
-    serverless     = "${var.project}-serverless"
-    frontend       = "${var.project}-frontend"
+  repositories = merge(
+    {
+      infrastructure = "${var.project}-infrastructure"
+      serverless     = "${var.project}-serverless"
+      frontend       = "${var.project}-frontend"
+    },
+    { for repo in keys(local.services) : repo => "${var.project}-${repo}" },
+  )
+
+  services = {
+    "os-service"        = { short = "os", database = true, dynamodb = false, subscribes = true, internal_token = true }
+    "billing-service"   = { short = "billing", database = true, dynamodb = false, subscribes = false, internal_token = false }
+    "execution-service" = { short = "execution", database = false, dynamodb = true, subscribes = false, internal_token = false }
   }
 }
