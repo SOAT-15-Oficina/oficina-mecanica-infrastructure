@@ -89,113 +89,93 @@ Desde a [ADR-0018](adr/0018-camada-unica-de-terraform.md) não há camada
 persistente: as roles ficam no `bootstrap/` e todo o resto em `platform/`, que o
 `bring-up` cria e o `tear-down` destrói.
 
-- [ ] Aplicar o `bootstrap/` com credencial humana. O plano deve ter **só
-      criações** (as 12 roles `oficina-mecanica-{homolog,prod}-gha-<repo>`, as
-      duas policies `oficina-mecanica-{homolog,prod}-ssm-read` e as policies
-      inline e anexos de cada role); nada no bucket nem na tabela muda:
+- [x] Aplicar o `bootstrap/` com credencial humana e commitar o
+      `bootstrap/terraform.tfstate` (12 roles `oficina-mecanica-{homolog,prod}-gha-<repo>`
+      em 2026-11-15; em seguida a política
+      `oficina-mecanica-{homolog,prod}-service-boundary` e o `rds:*` restrito
+      aos recursos de cada serviço).
+- [x] Cadastrar `AWS_DEPLOY_ROLE_ARN` no Environment `homolog` dos seis
+      repositórios: `arn:aws:iam::881757053222:role/oficina-mecanica-homolog-gha-<repo>`.
+- [x] Segredos do `-infrastructure` no Environment `homolog`:
+      `DATADOG_API_KEY` e `DATADOG_APP_KEY` (conta nova, `datadoghq.com`).
+- [x] `destroy.yml` dos três serviços em `hml` e `main`.
+- [x] `bring-up.yml` com `environment=homolog` na branch `hml`. Ordem:
+      `platform/` → Billing e Execution em paralelo → OS Service → serverless
+      e frontend.
+- [ ] **Produção:** repetir com `main` / `production`. Antes, cadastrar
+      `AWS_DEPLOY_ROLE_ARN` (role `prod`) e os segredos do Datadog da conta nova
+      no Environment `production` de cada repositório, e os secrets do Mercado
+      Pago do bloco 6 no Environment `production` do Billing.
+
+## 6. Mercado Pago (QR Code dinâmico)
+
+Feito uma vez, na conta de teste do vendedor:
+
+- [x] Aplicação de **QR Code** (pagamentos presenciais), loja `OFICINAMATRIZ`
+      e caixa `OFICINAMATRIZPOS01` (criados pelo `mp-setup` do Billing).
+- [x] Usuário de teste comprador para pagar pelo app.
+
+A cada ambiente, uma vez:
+
+- [ ] Cadastrar no GitHub Environment do Billing (`homolog` e `production`):
       ```bash
-      cd bootstrap
-      AWS_PROFILE=esantana terraform init
-      AWS_PROFILE=esantana terraform plan -out=roles.tfplan
-      AWS_PROFILE=esantana terraform apply roles.tfplan
-      terraform output github_role_arns
+      R=SOAT-15-Oficina/oficina-mecanica-billing-service
+      gh secret set MERCADOPAGO_ACCESS_TOKEN   --env homolog -R $R
+      gh secret set MERCADOPAGO_WEBHOOK_SECRET --env homolog -R $R
       ```
-- [ ] Commitar o `bootstrap/terraform.tfstate` resultante.
-- [ ] Cadastrar `AWS_DEPLOY_ROLE_ARN` no Environment `homolog` dos seis
-      repositórios: `arn:aws:iam::881757053222:role/oficina-mecanica-homolog-gha-<repo>`,
-      com `<repo>` = `infrastructure`, `os-service`, `billing-service`,
-      `execution-service`, `serverless`, `frontend`. Cada ARN vai no repositório
-      e no Environment corretos, senão dá `AccessDenied` ao assumir a role.
-- [ ] Conferir os segredos do `-infrastructure` no Environment `homolog`:
-      `DATADOG_API_KEY` e `DATADOG_APP_KEY` (ver bloco 8), e as variables
-      `TF_VAR_SES_VERIFIED_EMAILS` e `TF_VAR_SES_SENDER_EMAIL`.
-- [ ] Levar o `destroy.yml` dos três serviços (branch `feat/destroy-workflow`)
-      até `hml` **e** `main`: o GitHub só despacha `workflow_dispatch` de um
-      workflow que exista na branch padrão.
-- [ ] Rodar `bring-up.yml` com `environment=homolog` na branch `hml` do
-      `-infrastructure`. Ordem: `platform/` (VPC, EKS, ALB com listener 404,
-      Lambda, API Gateway, CloudFront, segredos, Datadog) → **Billing e
-      Execution em paralelo** → **OS Service** (o `infra/` dele lê do SSM as
-      filas e tópicos dos outros dois) → serverless e frontend.
-- [ ] Se algum pipeline de serviço falhar no primeiro apply, rodar de novo o
-      `ci.yml` daquele repositório na branch `hml` (`workflow_dispatch`).
-- [ ] Anotar as URLs do resumo do run (painel, API e webhook do Mercado Pago):
-      o domínio do CloudFront é novo a cada bring-up.
-- [ ] Conferir `https://<cloudfront>/api/ping`, `/api/billing/swagger` e
-      `/api/execution/swagger`.
+      As variables `SES_SENDER_EMAIL` e `MERCADOPAGO_APP_ID` já estão
+      cadastradas nos dois Environments. O deploy do Billing grava esses
+      valores no Secrets Manager a cada execução (passo **Update provider
+      credentials**), então não é mais preciso editar o segredo nem rodar o
+      `ci.yml` de novo depois do bring-up.
 
-## 6. Mercado Pago (credenciais de teste)
+A cada bring-up (o domínio do CloudFront muda):
 
-- [ ] Criar a aplicação em <https://www.mercadopago.com.br/developers/panel>,
-      gerar as **credenciais de teste** (access token `TEST-...`) e os usuários
-      de teste (vendedor e comprador).
-- [ ] Em Webhooks, configurar a URL
-      `https://<cloudfront>/api/billing/webhooks/mercadopago`, evento
-      **Pagamentos**, e copiar a **assinatura secreta**.
-- [ ] Gravar os dois valores no segredo
-      `oficina-mecanica/homolog/billing-service` (chaves
-      `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_WEBHOOK_SECRET`). O Terraform
-      ignora mudanças no conteúdo, então editar pelo console não é revertido.
-- [ ] Rodar de novo o `ci.yml` do Billing em `hml`: o deploy sincroniza o
-      segredo para o cluster.
-- [ ] Testar o webhook pelo simulador do painel do Mercado Pago (deve receber
-      200) e conferir que o CloudFront repassa `POST` com query string para
-      `/api/*`.
-- [ ] **A cada bring-up**, refazer o webhook e o segredo: o domínio do
-      CloudFront muda e o `destroy.yml` do Billing apaga o segredo
-      `oficina-mecanica/homolog/billing-service`, que volta com `CHANGE_ME`.
+- [ ] Copiar a URL do webhook do resumo do run do Billing (seção "Webhook do
+      Mercado Pago", com link direto para a tela de webhooks da aplicação) e
+      colar no painel, evento **Order (Mercado Pago)**. É o único passo manual
+      que sobra: o Mercado Pago não tem API para cadastrar o webhook da
+      aplicação.
 
 ## 7. Validação ponta a ponta em homologação
 
-- [ ] Registrar um usuário pelo painel (`/api/auth/register`) e fazer login.
-- [ ] Percorrer o caminho feliz pelo painel: abrir OS → bancada (diagnóstico) →
-      e-mail do orçamento → aprovar → pagar no checkout de teste com cartão de
-      teste → bancada (reparo) → FINALIZADA → entregar.
-- [ ] Caso C: marcar a bancada da `MATRIZ` como indisponível antes de pagar e
-      conferir `CANCELADA` + pagamento `ESTORNADO` no painel da OS.
-- [ ] SES em sandbox só entrega para endereços verificados: incluir o e-mail do
-      cliente de teste em `TF_VAR_SES_VERIFIED_EMAILS`, ou pedir acesso de
-      produção do SES.
-- [ ] Ao terminar a gravação, rodar `tear-down.yml` com
-      `environment=homolog`, `confirm=destroy`, na branch `hml`. Ele destrói o
-      OS Service, depois Billing e Execution, depois `platform/`, e falha se
-      sobrar VPC, Elastic IP, cluster, RDS, tabela DynamoDB, distribuição
-      CloudFront ou parâmetro SSM do ambiente.
+Validado em 2026-11-15 e ambiente derrubado em seguida:
+
+- [x] Login pela Lambda e cadastro pelo painel.
+- [x] Caminho feliz até `ENTREGUE` com pagamento real por QR Code no app do
+      comprador de teste; Saga `COMPLETED`.
+- [x] Caso A (cliente reprova) compensado.
+- [x] Caso C (bancada recusa depois do pagamento) com estorno real no
+      Mercado Pago.
+- [x] Webhook com assinatura inválida responde 401.
+- [ ] Caso B (QR expira) só foi provado no BDD local.
+- [x] `tear-down.yml` com `confirm=destroy`. O primeiro falhou no bucket do
+      Forwarder do Datadog; o passo "Empty Datadog forwarder bucket" resolve.
 
 ## 8. Observabilidade
 
-A conta Datadog da Fase 3 ia ser encerrada (memória de 2026-09-23). O
-enunciado pede a observabilidade da Fase 3 e o vídeo pede o rastreamento dos
-fluxos distribuídos.
-
-- [ ] Decidir: reativar a conta (ou abrir um trial) e cadastrar
-      `DATADOG_API_KEY`/`DATADOG_APP_KEY` nos Environments do `-infrastructure`
-      com `TF_VAR_DATADOG_ENABLED=true`, **antes** do bring-up do bloco 5.
-- [ ] Depois do bring-up, conferir no APM que uma OS aparece como um único
-      trace atravessando os três serviços (o contexto viaja nos message
+- [x] Conta Datadog nova (`datadoghq.com`) com Log Management ativo; painéis,
+      monitores e o painel da Saga sobem com o `platform/`.
+- [ ] Depois do próximo bring-up, conferir no APM que uma OS aparece como um
+      único trace atravessando os três serviços (o contexto viaja nos message
       attributes do SNS/SQS), e que o painel "Saga" recebe `@event:saga.*`.
 
 ## 9. Entregáveis do enunciado
 
-- [ ] Evidência de cobertura em cada README: print ou link do resumo do job
-      `quality` (SonarQube) do primeiro PR de cada repositório. Valores locais
-      medidos em 2026-11-11: OS 83,3%, Billing 94,6%, Execution 95,9%,
-      Lambda 92,4%.
+- [x] Evidência de cobertura em cada README: link da execução do CI cujo
+      *Summary* traz o resumo do SonarQube do job `quality`. Valores locais:
+      OS 83,3%, Billing 95,3%, Execution 95,9%, Lambda 92,4%.
 - [ ] Vídeo de até 15 minutos (YouTube ou Vimeo, não listado): fluxo completo,
       Saga com falha e compensação (caso C), deploy automatizado de um serviço
       com os testes passando e o trace distribuído no Datadog.
-- [ ] PDF: participantes, links dos seis repositórios, link do vídeo, diagrama
-      geral (`docs/diagramas/componentes.md` + RFC-0006), estratégia da Saga
-      (RFC-0006 seção 4 e ADR-0013) e justificativa da divisão (ADR-0012 e
-      ADR-0015).
+- [x] PDF: `docs/fase4-entrega.pdf` (participantes, links, diagrama, Saga,
+      justificativas). Falta preencher o link do vídeo.
 
 ## Pendências de código conhecidas (não bloqueiam o ambiente)
 
-- A role de deploy dos serviços tem `rds:*` e ações de security group em `*`, e
-  as roles IRSA que os serviços criam não têm permissions boundary.
-- No OS Service, o `status` de cada item da OS fica `PENDENTE` (o andamento real
-  está na ficha do Execution) e o `payment_url` continua preenchido depois do
-  pagamento; o painel contorna os dois.
+- As ações de security group da role de deploy dos serviços continuam em `*`
+  (o EC2 não restringe `CreateSecurityGroup` por nome).
+- O `payment_url` da OS continua preenchido depois do pagamento; o painel
+  decide pelo status.
 - A consulta pública da OS não devolve o `quote_id`: quem só tem código e
   documento vê o status, mas aprova pelo link do e-mail.
-- As mensagens de erro 409 do Billing e do OS estão em inglês.

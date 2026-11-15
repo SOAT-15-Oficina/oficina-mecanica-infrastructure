@@ -23,6 +23,7 @@ Este diretório é a fonte da verdade. O PDF distribuído para leitura offline
 | [Implantação e ciclo do ambiente](diagramas/implantacao.md) | Onde cada artefato roda, quem publica, o bootstrap e a camada única de Terraform |
 | [Modelo de dados](banco-de-dados.md) | Justificativa, diagrama ER, relacionamentos e ajustes no modelo |
 | [Glossário e diagnóstico rápido](glossario.md) | Termos do projeto, onde olhar quando algo falha, comandos de inspeção |
+| [Entrega da Fase 4](fase4-entrega.pdf) | PDF do portal: participantes, links, arquitetura, Saga e justificativas (fonte em [`fase4-entrega.html`](fase4-entrega.html)) |
 
 ## Roteiro de leitura
 
