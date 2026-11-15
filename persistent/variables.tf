@@ -63,10 +63,12 @@ variable "github_repository_ids" {
   description = "ID numerico de cada repositorio, na mesma chave de local.repositories. Repositorio sem ID confia so no formato classico do sub."
   type        = map(number)
   default = {
-    infrastructure = 1349770613
-    "os-service"   = 1349770766
-    serverless     = 1349770930
-    frontend       = 1349770282
+    infrastructure      = 1349770613
+    "os-service"        = 1349770766
+    "billing-service"   = 1458438521
+    "execution-service" = 1458438553
+    serverless          = 1349770930
+    frontend            = 1349770282
   }
 }
 
