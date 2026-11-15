@@ -66,7 +66,7 @@ Corrigir um `.html` do painel não recompila Go nem toca no Terraform.
 | E-mail | Amazon SES, acessado por IRSA | [ADR-0002](./adr/0002-comunicacao-sincrona-http.md) |
 | Segredos | AWS Secrets Manager | [ADR-0009](./adr/0009-jwt-hs256-com-segredo-compartilhado.md) |
 | Contrato entre repositórios | AWS SSM Parameter Store | [ADR-0007](./adr/0007-contrato-entre-repositorios-via-ssm.md) |
-| Infraestrutura como código | Terraform, em duas camadas | [ADR-0006](./adr/0006-duas-camadas-de-terraform.md) |
+| Infraestrutura como código | Terraform: bootstrap e uma camada de plataforma | [ADR-0018](./adr/0018-camada-unica-de-terraform.md) |
 | CI/CD | GitHub Actions, autenticação por OIDC | [ADR-0008](./adr/0008-oidc-para-os-pipelines.md) |
 | Observabilidade | Datadog, New Relic como alternativa | [RFC-0004](./rfc/0004-estrategia-de-observabilidade.md) |
 | Logs | `log/slog` JSON com `request_id` propagado | [ADR-0011](./adr/0011-logs-estruturados-com-correlacao.md) |
@@ -91,10 +91,10 @@ próprio handler quando precisa avisar alguém. Todo o percurso carrega o mesmo
 
 ## Três características que surpreendem quem chega
 
-- **O ambiente sobe e desce.** Uma camada persistente custa cerca de US$ 1 por
-  mês e vive sempre; uma camada efêmera custa cerca de US$ 0,30 por hora e
-  existe só em uso. Desligado, o domínio público responde 404
-  ([ADR-0006](./adr/0006-duas-camadas-de-terraform.md)).
+- **O ambiente sobe e desce inteiro.** Ligado custa cerca de US$ 0,30 por hora
+  mais os bancos; desligado, nada além do bucket de state. O domínio do
+  CloudFront muda a cada subida
+  ([ADR-0018](./adr/0018-camada-unica-de-terraform.md)).
 - **Nada é alcançável da internet além do CloudFront.** ALB, EKS, RDS e Lambda
   estão em subnets privadas, sem IP público ([ADR-0003](./adr/0003-api-gateway-como-unica-porta-publica.md)).
 - **A branch decide o ambiente.** Push em `hml` faz deploy em homologação;

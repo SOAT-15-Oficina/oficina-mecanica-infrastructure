@@ -12,10 +12,10 @@ projeto.
 | **Snapshot** | cópia de título, preço e tempo do catálogo para dentro do item da OS, no momento da inclusão ([ADR-0010](./adr/0010-snapshot-de-precos-na-ordem-de-servico.md)) |
 | **Catálogo** | as tabelas `services` e `supplies`, compartilhadas entre todas as OSs |
 | **Operador** | usuário interno: atendente, mecânico ou administrador |
-| **Camada persistente** | o Terraform em `persistent/`, que vive entre ciclos e custa ~US$ 1/mês ([ADR-0006](./adr/0006-duas-camadas-de-terraform.md)) |
-| **Camada efêmera** | o Terraform em `ephemeral/`, criado pelo `bring-up` e destruído pelo `tear-down` |
-| **Bring-up** | execução de `bring-up.yml`: cria a camada efêmera e dispara os pipelines de aplicação |
-| **Tear-down** | execução de `tear-down.yml`: destrói a camada efêmera e verifica que nada sobrou |
+| **Bootstrap** | o Terraform em `bootstrap/`: state, lock e as roles de deploy; aplicado à mão e nunca destruído |
+| **Plataforma** | o Terraform em `platform/`, criado pelo `bring-up` e destruído pelo `tear-down` ([ADR-0018](./adr/0018-camada-unica-de-terraform.md)) |
+| **Bring-up** | execução de `bring-up.yml`: aplica `platform/` e dispara os pipelines de aplicação |
+| **Tear-down** | execução de `tear-down.yml`: dispara o `destroy.yml` de cada serviço, destrói `platform/` e verifica que nada sobrou |
 | **Contrato entre repositórios** | os parâmetros no SSM que os pipelines leem para descobrir nomes de recurso ([ADR-0007](./adr/0007-contrato-entre-repositorios-via-ssm.md)) |
 | **Forma e conteúdo** | o Terraform cria a forma do recurso de aplicação; o pipeline de código publica o conteúdo, que é a imagem ou o zip |
 | **VPC Link** | recurso do API Gateway que cria ENIs em subnets privadas, permitindo alcançar o ALB interno |
@@ -29,13 +29,13 @@ projeto.
 
 | Sintoma | Primeiro lugar a olhar |
 |---|---|
-| Domínio público responde 404 em tudo | a camada efêmera está desligada ([ADR-0006](./adr/0006-duas-camadas-de-terraform.md)) |
+| Domínio público não resolve | o ambiente está desligado, ou o domínio é de um bring-up anterior: ele muda a cada subida ([ADR-0018](./adr/0018-camada-unica-de-terraform.md)) |
 | 502 ou 503 no domínio público | o ALB não tem target saudável: pods não-Ready, ou Deployment ainda com a imagem `pause` |
 | 401 em rota que deveria funcionar | expiração do token, ou divergência de segredo entre Lambda e pod |
 | 403 com `insufficient permissions` | o papel do token não cobre a rota |
 | Deploy do monolito parou antes do rollout | o `Job` de migration falhou; as últimas 200 linhas de log estão na saída do pipeline |
 | `AssumeRoleWithWebIdentity` negado | branch, repositório ou GitHub Environment não batem com a trust policy ([ADR-0008](./adr/0008-oidc-para-os-pipelines.md)) |
-| Pipeline reclama de variável vazia | um `get` do SSM voltou vazio: parâmetro renomeado ou camada não aplicada ([ADR-0007](./adr/0007-contrato-entre-repositorios-via-ssm.md)) |
+| Pipeline reclama de variável vazia | um `get` do SSM voltou vazio: parâmetro renomeado ou plataforma não aplicada ([ADR-0007](./adr/0007-contrato-entre-repositorios-via-ssm.md)) |
 | Painel do Datadog em zero | esperado até a fase 1 da [RFC-0004](./rfc/0004-estrategia-de-observabilidade.md) chegar ao ambiente |
 
 ## Comandos de inspeção

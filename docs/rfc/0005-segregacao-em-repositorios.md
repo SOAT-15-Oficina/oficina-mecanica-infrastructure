@@ -30,9 +30,15 @@ recompila Go nem toca no Terraform.
 ## Desvio em relação ao enunciado
 
 O enunciado pede a infraestrutura Kubernetes e a do banco em repositórios
-distintos. Aqui as duas vivem no mesmo repositório, em `ephemeral/`, e o corte
-que existe é **por ciclo de vida** (`persistent/` contra `ephemeral/`), não por
-tipo de recurso ([ADR-0006](../adr/0006-duas-camadas-de-terraform.md)).
+distintos. Na Fase 3 as duas viviam no mesmo repositório, e o corte que existia
+era **por ciclo de vida** (`persistent/` contra `ephemeral/`), não por tipo de
+recurso ([ADR-0006](../adr/0006-duas-camadas-de-terraform.md)). Desde a Fase 4
+o banco saiu daqui para o `infra/` de cada serviço
+([ADR-0017](../adr/0017-infra-e-manifestos-no-repositorio-do-servico.md)), e as
+duas camadas viraram uma só, `platform/`, criada pelo `bring-up` e destruída
+inteira pelo `tear-down`, com as roles de deploy no `bootstrap/`
+([ADR-0018](../adr/0018-camada-unica-de-terraform.md)). O texto abaixo registra
+o argumento da Fase 3.
 
 A razão é que EKS e RDS compartilham a mesma VPC, as mesmas subnets privadas e
 os mesmos security groups. Separá-los criaria dependência circular de state: o
@@ -47,7 +53,7 @@ lista do enunciado. A contagem de quatro se mantém; a composição não.
 **Se o critério de avaliação for literal**, a separação é viável com o padrão
 que já existe: extrair `rds.tf`, o `db_subnet_group` e o security group do
 banco para um repositório próprio, com state próprio, consumindo `vpc_id` e
-`private_subnet_ids` do SSM, parâmetros que a camada efêmera já publica
+`private_subnet_ids` do SSM, parâmetros que a plataforma já publica
 ([ADR-0007](../adr/0007-contrato-entre-repositorios-via-ssm.md)), e publicando `database_endpoint` de volta. O custo é
 uma ordem de bring-up a mais para orquestrar (rede, banco, cluster) e um
 `terraform apply` adicional no ciclo.

@@ -1,6 +1,6 @@
 # ADR-0002. Comunicação síncrona HTTP, sem broker de mensagens
 
-**Aceita** · 2026-09-02 · Relacionada [RFC-0005](../rfc/0005-segregacao-em-repositorios.md),
+**Substituída por [ADR-0012](./0012-tres-microsservicos-por-area-de-decisao.md)** · 2026-09-02 · Relacionada [RFC-0005](../rfc/0005-segregacao-em-repositorios.md),
 [ADR-0003](./0003-api-gateway-como-unica-porta-publica.md)
 
 **Contexto.** O sistema tem duas unidades de execução: o monolito modular em

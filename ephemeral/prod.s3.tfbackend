@@ -1,2 +1,0 @@
-# Producao. Key sem prefixo pelo mesmo motivo de persistent/prod.s3.tfbackend.
-key = "ephemeral/terraform.tfstate"
