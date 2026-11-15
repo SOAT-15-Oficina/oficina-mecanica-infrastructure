@@ -243,17 +243,6 @@ locals {
     datadog_secret_arn    = local.datadog_enabled ? aws_secretsmanager_secret.datadog[0].arn : "unset"
     datadog_forwarder_arn = local.datadog_forwarder_arn
 
-    # O teste sintetico mudou para a camada efemera (ephemeral/datadog_synthetics.tf)
-    # e precisa dos mesmos destinatarios de alerta. Contrato por SSM, como o resto
-    # (ADR-0007). Vazio e valor valido: o monitor sobe sem @destinatario.
     datadog_notify = local.dd_notify != "" ? local.dd_notify : "unset"
   }
-}
-
-resource "aws_ssm_parameter" "datadog" {
-  for_each = local.datadog_parameters
-
-  name  = "${local.ssm_prefix}/${each.key}"
-  type  = "String"
-  value = each.value
 }

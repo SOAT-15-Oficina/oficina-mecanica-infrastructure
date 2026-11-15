@@ -14,18 +14,24 @@ terraform {
       source  = "DataDog/datadog"
       version = "~> 4.21"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.31"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.14"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
-  # Bucket e tabela criados por ../bootstrap.
-  #
-  # A `key` fica FORA do bloco de proposito: cada ambiente tem o proprio state,
-  # e qual deles usar e escolhido no init.
-  #
-  #   terraform -chdir=persistent init -backend-config=prod.s3.tfbackend
-  #   terraform -chdir=persistent init -backend-config=homolog.s3.tfbackend
-  #
-  # Sem -backend-config o init PERGUNTA a key; com -input=false (como no CI) ele
-  # falha. Os dois comportamentos sao melhores que herdar um state por engano.
   backend "s3" {
     bucket         = "oficina-mecanica-tfstate-881757053222"
     region         = "sa-east-1"

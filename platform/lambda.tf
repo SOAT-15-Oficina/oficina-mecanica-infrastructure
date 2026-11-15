@@ -32,8 +32,8 @@ data "aws_iam_policy_document" "auth_lambda" {
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      data.aws_ssm_parameter.jwt_secret_arn.value,
-      data.aws_ssm_parameter.internal_service_token_secret_arn.value,
+      aws_secretsmanager_secret.jwt.arn,
+      aws_secretsmanager_secret.internal_service_token.arn,
     ]
   }
 }
@@ -54,7 +54,7 @@ resource "aws_cloudwatch_log_group" "auth_lambda" {
 #
 # Nasce com um zip placeholder que responde 503. O artefato real e propriedade
 # do pipeline do oficina-mecanica-serverless, que faz update-function-code --
-# por isso o ignore_changes abaixo. Sem ele, todo apply desta camada reverteria
+# por isso o ignore_changes abaixo. Sem ele, todo apply reverteria
 # a funcao para o placeholder.
 resource "aws_lambda_function" "auth" {
   function_name = "${local.name}-auth"
@@ -79,11 +79,11 @@ resource "aws_lambda_function" "auth" {
   environment {
     variables = {
       OS_INTERNAL_BASE_URL             = "http://${aws_lb.internal.dns_name}"
-      INTERNAL_SERVICE_TOKEN_SECRET_ID = data.aws_ssm_parameter.internal_service_token_secret_arn.value
-      JWT_SECRET_ID                    = data.aws_ssm_parameter.jwt_secret_arn.value
+      INTERNAL_SERVICE_TOKEN_SECRET_ID = aws_secretsmanager_secret.internal_service_token.arn
+      JWT_SECRET_ID                    = aws_secretsmanager_secret.jwt.arn
 
       DD_ENV     = local.dd_env
-      DD_SERVICE = local.dd_service_lambda
+      DD_SERVICE = local.dd_services.lambda
     }
   }
 
@@ -102,5 +102,5 @@ resource "aws_lambda_permission" "api_gateway" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.auth.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${data.aws_ssm_parameter.api_gateway_execution_arn.value}/*/*"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }

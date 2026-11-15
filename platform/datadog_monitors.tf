@@ -2,7 +2,7 @@ locals {
   dd_monitor_footer = <<-EOT
 
     Ambiente: ${var.environment} | Painel: ${var.project} [${var.environment}] Operacional
-    Definido em persistent/datadog_monitors.tf -- mude por PR, nao pela interface.
+    Definido em platform/datadog_monitors.tf -- mude por PR, nao pela interface.
     ${local.dd_notify}
   EOT
 }
@@ -139,7 +139,7 @@ resource "datadog_monitor" "hpa_at_ceiling" {
     O HPA esta em {{value}} replicas -- o teto -- ha 15 minutos. Acima disto o
     sistema nao tem mais para onde escalar: a proxima onda de trafego vira fila.
 
-    Decisao: subir `max_replicas` (ephemeral/k8s.tf) ou aumentar o node group.
+    Decisao: subir `maxReplicas` (k8s/base/hpa.yaml do servico) ou aumentar o node group.
     {{/is_alert}}
     ${local.dd_monitor_footer}
   EOT
@@ -225,7 +225,7 @@ resource "datadog_monitor" "database_storage" {
     {{#is_alert}}
     Restam {{value}} bytes livres no RDS de ${var.environment}.
 
-    O storage autoescala ate 50GB (ephemeral/rds.tf), entao isto raramente e
+    O storage autoescala ate 50GB (infra/ do servico), entao isto raramente e
     urgente -- mas crescimento rapido em ambiente de teste costuma ser log ou
     seed rodando em laco.
     {{/is_alert}}

@@ -2,7 +2,7 @@ resource "datadog_dashboard" "operational" {
   count = local.datadog_enabled ? 1 : 0
 
   title       = "${local.dd_dashboard_prefix} Operacional"
-  description = "Latencia, recursos do cluster, healthcheck e uptime. Definido em persistent/datadog_dashboard_operacional.tf."
+  description = "Latencia, recursos do cluster, healthcheck e uptime. Definido em platform/datadog_dashboard_operacional.tf."
   layout_type = "ordered"
   reflow_type = "auto"
 

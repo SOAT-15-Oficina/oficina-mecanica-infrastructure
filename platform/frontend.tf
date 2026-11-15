@@ -148,8 +148,6 @@ resource "aws_cloudfront_distribution" "site" {
     }
   }
 
-  # Enquanto o ambiente esta desligado (tear-down), o painel continua no ar e a
-  # API responde 404. Devolver a pagina de login mascararia isso.
   # NAO adicione custom_error_response aqui.
   #
   # Ele e configurado por DISTRIBUICAO, nao por cache behavior -- e esta

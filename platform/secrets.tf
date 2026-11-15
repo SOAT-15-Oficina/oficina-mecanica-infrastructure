@@ -1,17 +1,11 @@
-# Segredos na camada persistente para nao mudarem a cada bring-up: se fossem
-# recriados junto com o RDS, todo token emitido antes deixaria de valer e o
-# ambiente local precisaria ser reconfigurado a cada ciclo.
-
 resource "random_password" "jwt" {
   length  = 64
   special = false
 }
 
-# Assinado pela Lambda (oficina-mecanica-serverless), validado pelo monolito.
-# Um segredo, dois leitores.
 resource "aws_secretsmanager_secret" "jwt" {
   name                    = "${local.name}/jwt-secret"
-  description             = "Chave HS256 compartilhada entre a Lambda de auth e o monolito"
+  description             = "Chave HS256 compartilhada entre a Lambda de auth e os servicos"
   recovery_window_in_days = 0
 }
 

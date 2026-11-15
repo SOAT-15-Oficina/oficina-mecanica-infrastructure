@@ -2,7 +2,7 @@ resource "datadog_dashboard" "business" {
   count = local.datadog_enabled ? 1 : 0
 
   title       = "${local.dd_dashboard_prefix} Negocio"
-  description = "Volume de ordens de servico, tempo por status e falhas de integracao. Definido em persistent/datadog_dashboard_negocio.tf."
+  description = "Volume de ordens de servico, tempo por status e falhas de integracao. Definido em platform/datadog_dashboard_negocio.tf."
   layout_type = "ordered"
   reflow_type = "auto"
 
@@ -14,7 +14,7 @@ resource "datadog_dashboard" "business" {
 
   widget {
     note_definition {
-      content          = "Todos os numeros abaixo vem de METRICAS DE LOG (persistent/datadog_metrics.tf), contadas a partir dos eventos de dominio do `slog` (ADR-0011). O volume diario e conferivel contra o banco: `SELECT date(received_at), COUNT(*) FROM work_orders GROUP BY 1`."
+      content          = "Todos os numeros abaixo vem de METRICAS DE LOG (platform/datadog_metrics.tf), contadas a partir dos eventos de dominio do `slog` (ADR-0011). O volume diario e conferivel contra o banco: `SELECT date(received_at), COUNT(*) FROM work_orders GROUP BY 1`."
       background_color = "blue"
       font_size        = "14"
       text_align       = "left"

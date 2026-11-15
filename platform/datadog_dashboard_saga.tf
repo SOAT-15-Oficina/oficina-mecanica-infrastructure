@@ -2,7 +2,7 @@ resource "datadog_dashboard" "saga" {
   count = local.datadog_enabled ? 1 : 0
 
   title       = "${local.dd_dashboard_prefix} Saga"
-  description = "Andamento da Saga da OS: eventos por tipo, filas de entrada e DLQs. Definido em persistent/datadog_dashboard_saga.tf."
+  description = "Andamento da Saga da OS: eventos por tipo, filas de entrada e DLQs. Definido em platform/datadog_dashboard_saga.tf."
   layout_type = "ordered"
   reflow_type = "auto"
 

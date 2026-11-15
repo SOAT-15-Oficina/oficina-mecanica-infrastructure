@@ -1,38 +1,5 @@
-data "aws_ssm_parameter" "datadog_enabled" {
-  name = "${local.ssm_prefix}/datadog_enabled"
-}
-
-data "aws_ssm_parameter" "datadog_site" {
-  name = "${local.ssm_prefix}/datadog_site"
-}
-
-data "aws_ssm_parameter" "datadog_secret_arn" {
-  name = "${local.ssm_prefix}/datadog_secret_arn"
-}
-
-data "aws_ssm_parameter" "datadog_forwarder_arn" {
-  name = "${local.ssm_prefix}/datadog_forwarder_arn"
-}
-
 locals {
-  datadog_enabled = nonsensitive(data.aws_ssm_parameter.datadog_enabled.value) == "true"
-  datadog_site    = nonsensitive(data.aws_ssm_parameter.datadog_site.value)
-
-  datadog_secret_arn = nonsensitive(data.aws_ssm_parameter.datadog_secret_arn.value)
-
-  datadog_forwarder_arn = nonsensitive(data.aws_ssm_parameter.datadog_forwarder_arn.value)
-
   datadog_secret_name = "datadog-api-key"
-
-  dd_env = var.environment
-
-  dd_service_lambda = "auth-lambda"
-}
-
-data "aws_secretsmanager_secret_version" "datadog" {
-  count = local.datadog_enabled ? 1 : 0
-
-  secret_id = local.datadog_secret_arn
 }
 
 resource "kubernetes_secret" "datadog" {
@@ -44,7 +11,7 @@ resource "kubernetes_secret" "datadog" {
   }
 
   data = {
-    "api-key" = data.aws_secretsmanager_secret_version.datadog[0].secret_string
+    "api-key" = var.datadog_api_key
   }
 
   type = "Opaque"
@@ -61,7 +28,7 @@ resource "helm_release" "datadog" {
 
   values = [yamlencode({
     datadog = {
-      site        = local.datadog_site
+      site        = var.datadog_site
       clusterName = aws_eks_cluster.main.name
 
       apiKeyExistingSecret = local.datadog_secret_name
@@ -134,9 +101,6 @@ resource "helm_release" "datadog" {
     }
   })]
 
-  # O lb_controller entra aqui para serializar os dois charts. Sem isso o
-  # Terraform sobe os dois em paralelo e os Services do Datadog batem no webhook
-  # do controller antes dele ter endpoint (ver addons.tf).
   depends_on = [
     aws_eks_node_group.main,
     kubernetes_secret.datadog,
@@ -145,11 +109,11 @@ resource "helm_release" "datadog" {
 }
 
 resource "aws_cloudwatch_log_subscription_filter" "auth_lambda" {
-  count = local.datadog_enabled && local.datadog_forwarder_arn != "unset" ? 1 : 0
+  count = local.datadog_enabled && var.datadog_forward_cloudwatch_logs ? 1 : 0
 
   name            = "datadog"
   log_group_name  = aws_cloudwatch_log_group.auth_lambda.name
-  destination_arn = local.datadog_forwarder_arn
+  destination_arn = aws_cloudformation_stack.datadog_forwarder[0].outputs["DatadogForwarderArn"]
 
   filter_pattern = ""
 }
