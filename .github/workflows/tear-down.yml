@@ -126,6 +126,25 @@ jobs:
             kubectl -n "$NS" delete targetgroupbinding --all --ignore-not-found --timeout=120s
           fi
 
+      - name: Empty Datadog forwarder bucket
+        run: |
+          STACK="oficina-mecanica-${ENVIRONMENT}-datadog-forwarder"
+          BUCKET="$(aws cloudformation describe-stack-resources --stack-name "$STACK" \
+            --query "StackResources[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId | [0]" \
+            --output text 2>/dev/null || true)"
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = None ]; then
+            echo "sem bucket do forwarder"
+            exit 0
+          fi
+          aws s3 rm "s3://${BUCKET}" --recursive --quiet
+          VERSIONS="$(aws s3api list-object-versions --bucket "$BUCKET" --output json \
+            --query '{Objects: [Versions[].{Key:Key,VersionId:VersionId}, DeleteMarkers[].{Key:Key,VersionId:VersionId}][]}')"
+          if [ "$(jq '.Objects | map(select(. != null)) | length' <<<"$VERSIONS")" -gt 0 ]; then
+            jq -c '{Objects: (.Objects | map(select(. != null))), Quiet: true}' <<<"$VERSIONS" > /tmp/versions.json
+            aws s3api delete-objects --bucket "$BUCKET" --delete file:///tmp/versions.json >/dev/null
+          fi
+          echo "bucket ${BUCKET} esvaziado"
+
       - name: Destroy platform
         env:
           TF_VAR_ses_verified_emails: "[]"
