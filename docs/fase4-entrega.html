@@ -4,228 +4,315 @@
 <meta charset="utf-8">
 <title>Oficina Mecânica — Tech Challenge Fase 4</title>
 <style>
-  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
-  :root { --ink:#1d2327; --muted:#5b6670; --line:#d5dbe0; --accent:#0b5cad; --soft:#eef4fa; --warn:#a15c00; }
+  @page { size: A4; margin: 30mm 20mm 20mm 30mm;
+    @top-right { content: counter(page); font-family: "Times New Roman", "Liberation Serif", Times, serif; font-size: 10pt; vertical-align: bottom; padding-bottom: 8mm; } }
+  @page front { @top-right { content: none; } }
   * { box-sizing: border-box; }
-  body { font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.45; margin: 0; background: #fff; }
-  h1 { font-size: 22pt; margin: 0 0 4pt; letter-spacing: -0.01em; }
-  h2 { font-size: 13.5pt; margin: 20pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5pt solid var(--accent); color: var(--accent); break-after: avoid; }
-  h3 { font-size: 11pt; margin: 12pt 0 4pt; break-after: avoid; }
-  p { margin: 0 0 6pt; }
-  ul { margin: 0 0 6pt 14pt; padding: 0; }
-  li { margin: 0 0 2pt; }
-  code { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 8.6pt; background: #f2f4f6; padding: 0 2pt; border-radius: 2pt; }
-  a { color: var(--accent); text-decoration: none; }
-  table { width: 100%; border-collapse: collapse; margin: 4pt 0 8pt; font-size: 9pt; break-inside: avoid; }
-  th, td { text-align: left; vertical-align: top; padding: 3.5pt 5pt; border-bottom: 0.6pt solid var(--line); }
-  th { background: var(--soft); font-weight: 600; }
-  .cover { border-left: 4pt solid var(--accent); padding: 4pt 0 4pt 12pt; margin-bottom: 14pt; }
-  .sub { color: var(--muted); font-size: 11pt; }
-  .meta { color: var(--muted); font-size: 9pt; margin-top: 6pt; }
-  .fill { color: var(--warn); font-weight: 600; }
-  .figure { border: 0.6pt solid var(--line); border-radius: 4pt; padding: 6pt; margin: 6pt 0 4pt; break-inside: avoid; }
-  .caption { color: var(--muted); font-size: 8.5pt; margin-top: 3pt; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
-  .box { background: var(--soft); border-radius: 4pt; padding: 7pt 9pt; break-inside: avoid; }
-  .box h3 { margin-top: 0; }
-  .page-break { break-before: page; }
-  svg text { font-family: "Inter", "Segoe UI", Arial, sans-serif; }
+  html { font-family: "Times New Roman", "Liberation Serif", Times, serif; font-size: 12pt; color: #000; background: #fff; }
+  body { margin: 0; line-height: 1.5; background: #fff; hyphens: auto; }
+  .front { page: front; break-after: page; height: 247mm; display: flex; flex-direction: column; text-align: center; }
+  .front .inst { font-weight: bold; text-transform: uppercase; line-height: 1.5; }
+  .front .authors { margin-top: 18mm; text-transform: uppercase; line-height: 1.5; }
+  .front .title { margin-top: auto; font-weight: bold; text-transform: uppercase; font-size: 14pt; line-height: 1.5; }
+  .front .subtitle { font-size: 12pt; margin-top: 2pt; }
+  .front .place { margin-top: auto; text-transform: uppercase; line-height: 1.5; }
+  .nature { margin: 14mm 0 0 50%; text-align: justify; font-size: 10pt; line-height: 1.2; }
+  h1 { font-size: 12pt; font-weight: bold; text-transform: uppercase; margin: 0 0 12pt; break-after: avoid; }
+  body > h1 { break-before: page; }
+  h1.center { text-align: center; }
+  h2 { font-size: 12pt; font-weight: bold; margin: 18pt 0 6pt; break-after: avoid; }
+  p { margin: 0 0 6pt; text-indent: 12.5mm; text-align: justify; }
+  p.noindent { text-indent: 0; }
+  ol.alin { list-style: none; counter-reset: alin; margin: 0 0 8pt 12.5mm; padding: 0; text-align: justify; }
+  ol.alin > li { counter-increment: alin; position: relative; padding-left: 7mm; margin: 0 0 2pt; }
+  ol.alin > li::before { content: counter(alin, lower-alpha) ")"; position: absolute; left: 0; }
+  code { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 9.5pt; }
+  a { color: #000; text-decoration: none; }
+  .fill { font-weight: bold; }
+  .toc { list-style: none; margin: 0; padding: 0; }
+  .toc li { display: flex; align-items: baseline; margin: 0 0 4pt; }
+  .toc li.l1 { font-weight: bold; text-transform: uppercase; }
+  .toc li.l2 { padding-left: 0; }
+  .toc .num { width: 12mm; flex: none; }
+  .toc .dots { flex: 1; border-bottom: 1pt dotted #000; margin: 0 4pt; transform: translateY(-3pt); }
+  .toc .pg { flex: none; }
+  .cap { text-align: center; font-size: 10pt; line-height: 1.2; margin: 10pt 0 4pt; break-after: avoid; }
+  .src { font-size: 10pt; line-height: 1.2; margin: 3pt 0 12pt; }
+  .float { break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; line-height: 1.25; break-inside: avoid; }
+  th, td { border: 0.6pt solid #000; padding: 3pt 5pt; text-align: left; vertical-align: top; }
+  th { font-weight: bold; text-align: center; }
+  td.c { text-align: center; }
+  svg { display: block; margin: 0 auto; }
+  svg text { font-family: "Times New Roman", "Liberation Serif", Times, serif; }
 </style>
 </head>
 <body>
 
-<div class="cover">
-  <h1>Oficina Mecânica — microsserviços com Saga</h1>
-  <div class="sub">Pós-Tech Software Architecture · Tech Challenge Fase 4</div>
-  <div class="meta">Organização GitHub <a href="https://github.com/SOAT-15-Oficina">SOAT-15-Oficina</a> · documento gerado em 15/11/2026</div>
+<section class="front">
+  <div class="inst">FIAP — Faculdade de Informática e Administração Paulista<br>Pós-Tech Software Architecture</div>
+  <div class="authors">
+    Douglas Dellacruci Goulart<br>
+    Emerson Silva Santana<br>
+    Guilherme Castello Procopio da Silva<br>
+    Thiago Alves dos Anjos
+  </div>
+  <div class="title">Oficina Mecânica: decomposição em microsserviços com Saga orquestrada</div>
+  <div class="subtitle">Tech Challenge — Fase 4</div>
+  <div class="place">São Paulo<br>2026</div>
+</section>
+
+<section class="front">
+  <div class="authors" style="margin-top:0">
+    Douglas Dellacruci Goulart<br>
+    Emerson Silva Santana<br>
+    Guilherme Castello Procopio da Silva<br>
+    Thiago Alves dos Anjos
+  </div>
+  <div class="title">Oficina Mecânica: decomposição em microsserviços com Saga orquestrada</div>
+  <div class="subtitle">Tech Challenge — Fase 4</div>
+  <div class="nature">Documento de entrega do Tech Challenge da Fase 4 do curso de pós-graduação Pós-Tech Software Architecture da FIAP, com a descrição da arquitetura, da estratégia de Saga e da divisão dos microsserviços da solução.</div>
+  <div class="place">São Paulo<br>2026</div>
+</section>
+
+<section class="front" style="height:auto">
+  <h1 class="center">Sumário</h1>
+  <ul class="toc" style="text-align:left">
+    <li class="l1"><span class="num">1</span><span>Introdução</span><span class="dots"></span><span class="pg">4</span></li>
+    <li class="l1"><span class="num">2</span><span>Integrantes e links</span><span class="dots"></span><span class="pg">5</span></li>
+    <li class="l2"><span class="num">2.1</span><span>Integrantes</span><span class="dots"></span><span class="pg">5</span></li>
+    <li class="l2"><span class="num">2.2</span><span>Repositórios e vídeo</span><span class="dots"></span><span class="pg">5</span></li>
+    <li class="l1"><span class="num">3</span><span>Arquitetura geral</span><span class="dots"></span><span class="pg">6</span></li>
+    <li class="l2"><span class="num">3.1</span><span>Visão dos componentes</span><span class="dots"></span><span class="pg">6</span></li>
+    <li class="l2"><span class="num">3.2</span><span>Comunicação entre os serviços</span><span class="dots"></span><span class="pg">6</span></li>
+    <li class="l1"><span class="num">4</span><span>Estratégia da Saga</span><span class="dots"></span><span class="pg">8</span></li>
+    <li class="l2"><span class="num">4.1</span><span>Passos e compensações</span><span class="dots"></span><span class="pg">8</span></li>
+    <li class="l2"><span class="num">4.2</span><span>Falhas tratadas</span><span class="dots"></span><span class="pg">8</span></li>
+    <li class="l2"><span class="num">4.3</span><span>Persistência do estado da Saga</span><span class="dots"></span><span class="pg">9</span></li>
+    <li class="l2"><span class="num">4.4</span><span>Estados da ordem de serviço</span><span class="dots"></span><span class="pg">9</span></li>
+    <li class="l1"><span class="num">5</span><span>Divisão dos microsserviços</span><span class="dots"></span><span class="pg">10</span></li>
+    <li class="l1"><span class="num">6</span><span>Tecnologias adotadas</span><span class="dots"></span><span class="pg">11</span></li>
+    <li class="l1"><span class="num">7</span><span>Qualidade e validação</span><span class="dots"></span><span class="pg">12</span></li>
+    <li class="l1"><span class="num">8</span><span>Considerações finais</span><span class="dots"></span><span class="pg">13</span></li>
+  </ul>
+</section>
+
+<h1>1 Introdução</h1>
+<p>Este documento descreve a solução entregue no Tech Challenge da Fase 4 para o sistema de gestão de uma oficina mecânica. Nas fases anteriores, o sistema era um monólito em Go com banco PostgreSQL, executado em Kubernetes na AWS. Nesta fase, o monólito foi decomposto em três microsserviços com repositório, infraestrutura, pipeline e banco de dados próprios, que se comunicam por mensageria e coordenam o ciclo de vida da ordem de serviço (OS) por meio de uma Saga orquestrada com compensações.</p>
+<p>As seções seguintes apresentam os integrantes e os links da entrega, a arquitetura geral, a estratégia de Saga adotada e sua justificativa, a divisão de responsabilidades entre os microsserviços, as tecnologias escolhidas e as evidências de qualidade e de validação da solução.</p>
+
+<h1>2 Integrantes e links</h1>
+<h2>2.1 Integrantes</h2>
+<div class="float">
+  <div class="cap">Quadro 1 – Integrantes do grupo</div>
+  <table>
+    <tr><th style="width:44%">Nome</th><th style="width:16%">RM</th><th>E-mail</th></tr>
+    <tr><td>Douglas Dellacruci Goulart</td><td class="c">371806</td><td>douglas.goul@gmail.com</td></tr>
+    <tr><td>Emerson Silva Santana</td><td class="c">371304</td><td>emersonsantana.dev@gmail.com</td></tr>
+    <tr><td>Guilherme Castello Procopio da Silva</td><td class="c">374242</td><td>guilhermecastellobrasolin@gmail.com</td></tr>
+    <tr><td>Thiago Alves dos Anjos</td><td class="c">371097</td><td>thiagoadosanjos@outlook.com.br</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
 </div>
 
-<h2>1. Participantes</h2>
-<table>
-  <tr><th style="width:45%">Nome</th><th style="width:20%">RM</th><th>Contato</th></tr>
-  <tr><td>Emerson Santana</td><td class="fill">RM a preencher</td><td>emersonsantana.dev@gmail.com</td></tr>
-  <tr><td>Guilherme Castello</td><td class="fill">RM a preencher</td><td>guilhermecastellobrasolin@gmail.com</td></tr>
-</table>
+<h2>2.2 Repositórios e vídeo</h2>
+<p>O código está na organização <a href="https://github.com/SOAT-15-Oficina">SOAT-15-Oficina</a> do GitHub, com um repositório por componente, conforme o Quadro 2. Cada serviço publica a documentação Swagger em <code>/api/&lt;prefixo&gt;/swagger</code> (prefixos <code>workshop</code>, <code>billing</code> e <code>execution</code>) e traz no README a evidência de cobertura de testes: o link da execução do pipeline cujo resumo mostra o Quality Gate do SonarQube.</p>
+<div class="float">
+  <div class="cap">Quadro 2 – Links da entrega</div>
+  <table>
+    <tr><th style="width:30%">Item</th><th>Endereço</th></tr>
+    <tr><td>Vídeo de demonstração</td><td class="fill">[link do vídeo a preencher]</td></tr>
+    <tr><td>OS Service (orquestrador)</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-os-service">https://github.com/SOAT-15-Oficina/oficina-mecanica-os-service</a></td></tr>
+    <tr><td>Billing Service</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-billing-service">https://github.com/SOAT-15-Oficina/oficina-mecanica-billing-service</a></td></tr>
+    <tr><td>Execution Service</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-execution-service">https://github.com/SOAT-15-Oficina/oficina-mecanica-execution-service</a></td></tr>
+    <tr><td>Autenticação (Lambda)</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless">https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless</a></td></tr>
+    <tr><td>Painel web</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-frontend">https://github.com/SOAT-15-Oficina/oficina-mecanica-frontend</a></td></tr>
+    <tr><td>Plataforma e documentação</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-infrastructure">https://github.com/SOAT-15-Oficina/oficina-mecanica-infrastructure</a> (RFC-0006 e ADRs 0012 a 0018 na pasta <code>docs/</code>)</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
+</div>
 
-<h2>2. Links</h2>
-<table>
-  <tr><th style="width:30%">Item</th><th>Link</th></tr>
-  <tr><td>Vídeo de demonstração</td><td class="fill">link do YouTube/Vimeo a preencher</td></tr>
-  <tr><td>OS Service (orquestrador)</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-os-service">github.com/SOAT-15-Oficina/oficina-mecanica-os-service</a></td></tr>
-  <tr><td>Billing Service</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-billing-service">github.com/SOAT-15-Oficina/oficina-mecanica-billing-service</a></td></tr>
-  <tr><td>Execution Service</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-execution-service">github.com/SOAT-15-Oficina/oficina-mecanica-execution-service</a></td></tr>
-  <tr><td>Autenticação (Lambda)</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-serverless">github.com/SOAT-15-Oficina/oficina-mecanica-serverless</a></td></tr>
-  <tr><td>Painel web</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-frontend">github.com/SOAT-15-Oficina/oficina-mecanica-frontend</a></td></tr>
-  <tr><td>Plataforma e documentação</td><td><a href="https://github.com/SOAT-15-Oficina/oficina-mecanica-infrastructure">github.com/SOAT-15-Oficina/oficina-mecanica-infrastructure</a> (RFC-0006 e ADRs 0012 a 0018 em <code>docs/</code>)</td></tr>
-</table>
-<p>Cada serviço publica o próprio Swagger em <code>/api/&lt;prefixo&gt;/swagger</code> (<code>workshop</code>, <code>billing</code>, <code>execution</code>) e traz no README a evidência de cobertura: o link da execução do CI cujo resumo mostra o Quality Gate do SonarQube.</p>
+<h1>3 Arquitetura geral</h1>
+<h2>3.1 Visão dos componentes</h2>
+<p>A Figura 1 apresenta os componentes da solução. Todo o tráfego externo entra por uma única porta pública: a distribuição CloudFront serve o painel web a partir do S3 e encaminha as chamadas <code>/api</code> ao API Gateway, que as entrega à Lambda de autenticação ou, por VPC Link, a um Application Load Balancer interno que roteia por prefixo para cada serviço no cluster EKS. O webhook do Mercado Pago percorre o mesmo caminho até o Billing Service.</p>
+<p>No EKS há um namespace por ambiente, uma role IRSA por serviço e o agente do Datadog. Nenhum serviço acessa o banco de dados de outro: a informação de que um serviço precisa viaja na própria mensagem.</p>
 
-<h2>3. Arquitetura geral</h2>
-<div class="figure">
+<div class="float">
+<div class="cap">Figura 1 – Arquitetura geral da solução</div>
 <svg viewBox="0 0 760 470" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama de arquitetura">
   <defs>
-    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6670"/></marker>
-    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0b5cad"/></marker>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker>
   </defs>
   <style>
-    .n{fill:#fff;stroke:#5b6670;stroke-width:1}
-    .svc{fill:#eef4fa;stroke:#0b5cad;stroke-width:1.4}
-    .db{fill:#fff7ea;stroke:#a15c00;stroke-width:1}
-    .msg{fill:#f2f0fb;stroke:#5a4bb3;stroke-width:1}
-    .ext{fill:#f4f6f7;stroke:#8a959e;stroke-width:1;stroke-dasharray:4 3}
-    .t{font-size:11px;fill:#1d2327}
-    .tb{font-size:11.5px;font-weight:600;fill:#1d2327}
-    .ts{font-size:9.5px;fill:#5b6670}
-    .s{stroke:#5b6670;stroke-width:1.1;fill:none}
-    .as{stroke:#0b5cad;stroke-width:1.2;fill:none;stroke-dasharray:5 3}
-    .zone{fill:none;stroke:#c3ccd4;stroke-width:1;stroke-dasharray:2 3}
+    .n{fill:#fff;stroke:#000;stroke-width:0.9}
+    .svc{fill:#e6e6e6;stroke:#000;stroke-width:1.3}
+    .db{fill:#fff;stroke:#000;stroke-width:0.9}
+    .msg{fill:#f2f2f2;stroke:#000;stroke-width:0.9}
+    .ext{fill:#fff;stroke:#000;stroke-width:0.9;stroke-dasharray:4 3}
+    .t{font-size:11.5px;fill:#000}
+    .tb{font-size:12px;font-weight:bold;fill:#000}
+    .ts{font-size:10.5px;fill:#000}
+    .s{stroke:#000;stroke-width:1;fill:none}
+    .as{stroke:#000;stroke-width:1;fill:none;stroke-dasharray:5 3}
+    .zone{fill:none;stroke:#555;stroke-width:0.8;stroke-dasharray:2 3}
   </style>
 
-  <rect class="ext" x="10" y="20" width="110" height="44" rx="6"/>
+  <rect class="ext" x="10" y="20" width="110" height="44" rx="4"/>
   <text class="tb" x="65" y="39" text-anchor="middle">Operador</text>
-  <text class="ts" x="65" y="53" text-anchor="middle">painel web</text>
-  <rect class="ext" x="10" y="80" width="110" height="44" rx="6"/>
+  <text class="ts" x="65" y="54" text-anchor="middle">painel web</text>
+  <rect class="ext" x="10" y="80" width="110" height="44" rx="4"/>
   <text class="tb" x="65" y="99" text-anchor="middle">Cliente</text>
-  <text class="ts" x="65" y="113" text-anchor="middle">e-mail, link, app MP</text>
+  <text class="ts" x="65" y="114" text-anchor="middle">e-mail, link, app MP</text>
 
-  <rect class="n" x="160" y="45" width="110" height="50" rx="6"/>
+  <rect class="n" x="160" y="45" width="110" height="50" rx="4"/>
   <text class="tb" x="215" y="66" text-anchor="middle">CloudFront</text>
-  <text class="ts" x="215" y="80" text-anchor="middle">S3 (painel) + /api</text>
+  <text class="ts" x="215" y="81" text-anchor="middle">S3 (painel) + /api</text>
   <path class="s" d="M120 42 L160 62" marker-end="url(#a)"/>
   <path class="s" d="M120 102 L160 80" marker-end="url(#a)"/>
 
-  <rect class="n" x="305" y="45" width="115" height="50" rx="6"/>
+  <rect class="n" x="305" y="45" width="115" height="50" rx="4"/>
   <text class="tb" x="362" y="66" text-anchor="middle">API Gateway</text>
-  <text class="ts" x="362" y="80" text-anchor="middle">HTTP API + VPC Link</text>
+  <text class="ts" x="362" y="81" text-anchor="middle">HTTP API + VPC Link</text>
   <path class="s" d="M270 70 L305 70" marker-end="url(#a)"/>
 
-  <rect class="n" x="455" y="20" width="135" height="46" rx="6"/>
+  <rect class="n" x="455" y="20" width="135" height="46" rx="4"/>
   <text class="tb" x="522" y="39" text-anchor="middle">Lambda de auth</text>
-  <text class="ts" x="522" y="53" text-anchor="middle">/auth/login, emite JWT</text>
+  <text class="ts" x="522" y="54" text-anchor="middle">/auth/login, emite JWT</text>
   <path class="s" d="M420 60 L455 45" marker-end="url(#a)"/>
 
-  <rect class="n" x="455" y="80" width="135" height="40" rx="6"/>
+  <rect class="n" x="455" y="80" width="135" height="40" rx="4"/>
   <text class="tb" x="522" y="98" text-anchor="middle">ALB interno</text>
-  <text class="ts" x="522" y="111" text-anchor="middle">roteia por prefixo</text>
+  <text class="ts" x="522" y="112" text-anchor="middle">roteia por prefixo</text>
   <path class="s" d="M420 80 L455 96" marker-end="url(#a)"/>
 
-  <rect class="zone" x="140" y="140" width="610" height="230" rx="8"/>
+  <rect class="zone" x="140" y="140" width="610" height="230" rx="6"/>
   <text class="ts" x="150" y="156">VPC · EKS</text>
 
-  <rect class="svc" x="160" y="170" width="170" height="64" rx="7"/>
+  <rect class="svc" x="160" y="170" width="170" height="64" rx="4"/>
   <text class="tb" x="245" y="192" text-anchor="middle">OS Service</text>
   <text class="ts" x="245" y="207" text-anchor="middle">OS, catálogos, histórico</text>
-  <text class="ts" x="245" y="221" text-anchor="middle">orquestrador da Saga</text>
+  <text class="ts" x="245" y="222" text-anchor="middle">orquestrador da Saga</text>
 
-  <rect class="svc" x="370" y="170" width="170" height="64" rx="7"/>
+  <rect class="svc" x="370" y="170" width="170" height="64" rx="4"/>
   <text class="tb" x="455" y="192" text-anchor="middle">Billing Service</text>
   <text class="ts" x="455" y="207" text-anchor="middle">orçamento, aprovação,</text>
-  <text class="ts" x="455" y="221" text-anchor="middle">pagamento QR, estorno</text>
+  <text class="ts" x="455" y="222" text-anchor="middle">pagamento QR, estorno</text>
 
-  <rect class="svc" x="575" y="170" width="160" height="64" rx="7"/>
+  <rect class="svc" x="575" y="170" width="160" height="64" rx="4"/>
   <text class="tb" x="655" y="192" text-anchor="middle">Execution Service</text>
   <text class="ts" x="655" y="207" text-anchor="middle">fila da bancada,</text>
-  <text class="ts" x="655" y="221" text-anchor="middle">diagnóstico e reparo</text>
+  <text class="ts" x="655" y="222" text-anchor="middle">diagnóstico e reparo</text>
 
   <path class="s" d="M490 120 L280 170" marker-end="url(#a)"/>
   <path class="s" d="M515 120 L470 170" marker-end="url(#a)"/>
   <path class="s" d="M545 120 L630 170" marker-end="url(#a)"/>
   <path class="s" d="M522 66 L522 80" marker-end="url(#a)"/>
 
-  <rect class="db" x="175" y="300" width="140" height="44" rx="6"/>
+  <rect class="db" x="185" y="300" width="120" height="44" rx="4"/>
   <text class="tb" x="245" y="319" text-anchor="middle">PostgreSQL (RDS)</text>
-  <text class="ts" x="245" y="333" text-anchor="middle">os · outbox · saga</text>
-  <rect class="db" x="385" y="300" width="140" height="44" rx="6"/>
+  <text class="ts" x="245" y="334" text-anchor="middle">os · outbox · saga</text>
+  <rect class="db" x="395" y="300" width="120" height="44" rx="4"/>
   <text class="tb" x="455" y="319" text-anchor="middle">PostgreSQL (RDS)</text>
-  <text class="ts" x="455" y="333" text-anchor="middle">billing · outbox</text>
-  <rect class="db" x="585" y="300" width="140" height="44" rx="6"/>
+  <text class="ts" x="455" y="334" text-anchor="middle">billing · outbox</text>
+  <rect class="db" x="595" y="300" width="120" height="44" rx="4"/>
   <text class="tb" x="655" y="319" text-anchor="middle">DynamoDB</text>
-  <text class="ts" x="655" y="333" text-anchor="middle">fichas + outbox (GSI)</text>
+  <text class="ts" x="655" y="334" text-anchor="middle">fichas + outbox (GSI)</text>
   <path class="s" d="M245 234 L245 300" marker-end="url(#a)"/>
   <path class="s" d="M455 234 L455 300" marker-end="url(#a)"/>
   <path class="s" d="M655 234 L655 300" marker-end="url(#a)"/>
 
-  <rect class="msg" x="160" y="395" width="590" height="62" rx="7"/>
+  <rect class="msg" x="160" y="395" width="590" height="62" rx="4"/>
   <text class="tb" x="455" y="413" text-anchor="middle">Mensageria FIFO (MessageGroupId = id da OS)</text>
   <text class="t" x="175" y="432">SQS os-inbox ← assina os tópicos SNS billing-events e execution-events</text>
   <text class="t" x="175" y="448">SQS billing-inbox e execution-inbox ← comandos do orquestrador · DLQ em todas</text>
-  <path class="as" d="M220 234 L220 395" marker-end="url(#b)"/>
-  <path class="as" d="M270 395 L270 234" marker-end="url(#b)"/>
-  <path class="as" d="M430 234 L430 395" marker-end="url(#b)"/>
-  <path class="as" d="M480 395 L480 234" marker-end="url(#b)"/>
-  <path class="as" d="M630 234 L630 395" marker-end="url(#b)"/>
-  <path class="as" d="M680 395 L680 234" marker-end="url(#b)"/>
+  <path class="as" d="M172 234 L172 395" marker-end="url(#a)"/>
+  <path class="as" d="M318 395 L318 234" marker-end="url(#a)"/>
+  <path class="as" d="M382 234 L382 395" marker-end="url(#a)"/>
+  <path class="as" d="M528 395 L528 234" marker-end="url(#a)"/>
+  <path class="as" d="M587 234 L587 395" marker-end="url(#a)"/>
+  <path class="as" d="M723 395 L723 234" marker-end="url(#a)"/>
 
-  <rect class="ext" x="620" y="20" width="130" height="46" rx="6"/>
+  <rect class="ext" x="620" y="20" width="130" height="46" rx="4"/>
   <text class="tb" x="685" y="39" text-anchor="middle">Mercado Pago</text>
-  <text class="ts" x="685" y="53" text-anchor="middle">Orders API (QR) + webhook</text>
-  <rect class="ext" x="620" y="80" width="130" height="40" rx="6"/>
+  <text class="ts" x="685" y="54" text-anchor="middle">Orders API (QR) + webhook</text>
+  <rect class="ext" x="620" y="80" width="130" height="40" rx="4"/>
   <text class="tb" x="685" y="98" text-anchor="middle">SES · Datadog</text>
-  <text class="ts" x="685" y="111" text-anchor="middle">e-mail · logs, APM</text>
+  <text class="ts" x="685" y="112" text-anchor="middle">e-mail · logs, APM</text>
 </svg>
-<div class="caption">Linhas cheias: HTTP síncrono. Tracejadas: mensagens assíncronas. No EKS, um namespace por ambiente, uma role IRSA por serviço e o agente do Datadog. Nenhum serviço acessa o banco de outro; o que um precisa do outro viaja na mensagem. O webhook do Mercado Pago entra pelo mesmo CloudFront → API Gateway → ALB e chega ao Billing.</div>
+<div class="src">Legenda: linhas cheias representam chamadas HTTP síncronas; linhas tracejadas, mensagens assíncronas; contornos tracejados, sistemas externos.<br>Fonte: elaborado pelos autores (2026).</div>
 </div>
 
-<h3>Comunicação</h3>
-<table>
-  <tr><th style="width:24%">Tipo</th><th>Onde</th></tr>
-  <tr><td>REST síncrono</td><td>Painel → API Gateway → serviços (JWT HS256 validado em cada serviço); Lambda de auth → OS Service (<code>/internal/*</code>, token de serviço); cliente → Billing (aprovação por link público e página do QR Code); Billing → Mercado Pago.</td></tr>
-  <tr><td>Assíncrono (comandos)</td><td>OS Service → SQS FIFO de entrada do Billing e do Execution: <code>billing.create-quote</code>, <code>request-payment</code>, <code>refund-payment</code>, <code>cancel-quote</code>, <code>execution.schedule-diagnosis</code>, <code>enqueue-repair</code>, <code>cancel-ticket</code>.</td></tr>
-  <tr><td>Assíncrono (eventos)</td><td>Billing e Execution → tópico SNS FIFO próprio → SQS FIFO do OS Service: <code>quote-sent</code>, <code>quote-approved</code>, <code>payment-confirmed</code>, <code>payment-refunded</code>, <code>diagnosis-completed</code>, <code>repair-enqueued</code>, <code>repair-rejected</code>, <code>repair-completed</code> e outros.</td></tr>
-  <tr><td>Entrega confiável</td><td>Outbox transacional em cada serviço (o estado e a mensagem são gravados na mesma transação), consumidor idempotente por <code>message_id</code>, DLQ por fila e ordem garantida por OS (<code>MessageGroupId</code>).</td></tr>
-</table>
-
-<h2 class="page-break">4. Estratégia da Saga: orquestração</h2>
-<p>A Saga é <b>orquestrada pelo OS Service</b>. O fluxo da OS é sequencial e tem compensação em quase todo passo; com coreografia, a sequência ficaria espalhada pelos consumidores dos três serviços e ninguém saberia dizer em que passo uma OS está. O OS Service já é o dono da OS, e a Saga é o ciclo de vida dela. Billing e Execution não se conhecem: só recebem comandos e publicam eventos.</p>
-
-<table>
-  <tr><th>#</th><th>Passo</th><th>Participante</th><th>Compensação</th></tr>
-  <tr><td>1</td><td>Abrir OS</td><td>OS (local)</td><td>OS <code>CANCELADA</code></td></tr>
-  <tr><td>2</td><td>Agendar e concluir o diagnóstico</td><td>Execution</td><td><code>execution.cancel-ticket</code></td></tr>
-  <tr><td>3</td><td>Gerar orçamento e enviar por e-mail</td><td>Billing</td><td><code>billing.cancel-quote</code></td></tr>
-  <tr><td>4</td><td>Decisão do cliente por item (prazo de 7 dias)</td><td>Billing → OS</td><td>—</td></tr>
-  <tr><td>5</td><td>Cobrar por QR Code dinâmico (prazo de 48 h)</td><td>Billing + Mercado Pago</td><td><code>billing.refund-payment</code> (estorno real)</td></tr>
-  <tr><td>6</td><td>Reservar insumos</td><td>OS (local)</td><td>libera a reserva</td></tr>
-  <tr><td>7</td><td>Enfileirar o reparo na bancada — <b>pivô</b></td><td>Execution</td><td>— (daqui em diante a Saga só avança)</td></tr>
-  <tr><td>8</td><td>Reparo iniciado, itens concluídos, OS <code>FINALIZADA</code></td><td>Execution → OS</td><td>—</td></tr>
-</table>
-
-<div class="two">
-  <div class="box">
-    <h3>Falhas tratadas</h3>
-    <ul>
-      <li><b>A.</b> Cliente reprova todos os itens ou não decide no prazo → cancela a ficha da bancada → OS <code>CANCELADA</code>.</li>
-      <li><b>B.</b> QR Code expira ou o pagamento falha → cancela a order no Mercado Pago e o orçamento → cancela a ficha.</li>
-      <li><b>C.</b> Bancada recusa o reparo depois do pagamento → libera insumos → <b>estorna no Mercado Pago</b> → cancela a ficha.</li>
-      <li>Pagamento que chega durante ou depois da compensação → o Billing confirma mesmo assim e o orquestrador acrescenta o estorno.</li>
-      <li>Participante sem resposta → reenvio do mesmo comando (mesmo <code>message_id</code>) até o limite, depois compensação.</li>
-    </ul>
-  </div>
-  <div class="box">
-    <h3>Como o estado é guardado</h3>
-    <ul>
-      <li>Tabela <code>saga_instances</code>: passo atual, passos concluídos, compensações pendentes, prazo, tentativas, motivo da falha.</li>
-      <li>Controle otimista por <code>version</code>; mensagem duplicada, fora de ordem ou de outra Saga é descartada e logada.</li>
-      <li>Laço de prazos com <code>FOR UPDATE SKIP LOCKED</code>: várias réplicas dividem o trabalho.</li>
-      <li>Histórico da OS com a causa e o <code>message_id</code> de cada transição.</li>
-      <li>Logs <code>saga.*</code> e trace propagado nos atributos das mensagens até o Datadog.</li>
-    </ul>
-  </div>
+<h2>3.2 Comunicação entre os serviços</h2>
+<p>Os serviços combinam chamadas síncronas, usadas quando há um usuário aguardando a resposta, com mensagens assíncronas, usadas na coordenação da Saga. O Quadro 3 resume onde cada forma de comunicação é empregada e como a entrega das mensagens é garantida.</p>
+<div class="float">
+  <div class="cap">Quadro 3 – Formas de comunicação</div>
+  <table>
+    <tr><th style="width:22%">Tipo</th><th>Onde é usada</th></tr>
+    <tr><td>REST síncrono</td><td>Painel → API Gateway → serviços (JWT HS256 validado em cada serviço); Lambda de autenticação → OS Service (<code>/internal/*</code>, com token de serviço); cliente → Billing (aprovação por link público e página do QR Code); Billing → Mercado Pago.</td></tr>
+    <tr><td>Assíncrono (comandos)</td><td>OS Service → filas SQS FIFO de entrada do Billing e do Execution: <code>billing.create-quote</code>, <code>request-payment</code>, <code>refund-payment</code>, <code>cancel-quote</code>, <code>execution.schedule-diagnosis</code>, <code>enqueue-repair</code> e <code>cancel-ticket</code>.</td></tr>
+    <tr><td>Assíncrono (eventos)</td><td>Billing e Execution → tópico SNS FIFO próprio → fila SQS FIFO do OS Service: <code>quote-sent</code>, <code>quote-approved</code>, <code>payment-confirmed</code>, <code>payment-refunded</code>, <code>diagnosis-completed</code>, <code>repair-enqueued</code>, <code>repair-rejected</code>, <code>repair-completed</code>, entre outros.</td></tr>
+    <tr><td>Entrega confiável</td><td>Outbox transacional em cada serviço (o estado e a mensagem são gravados na mesma transação), consumidor idempotente por <code>message_id</code>, fila de mensagens mortas (DLQ) por fila e ordem garantida por OS (<code>MessageGroupId</code>).</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
 </div>
 
-<div class="figure">
+<h1>4 Estratégia da Saga</h1>
+<p>Foi adotada a <b>Saga orquestrada</b>, com o OS Service no papel de orquestrador. O fluxo da ordem de serviço é sequencial e possui compensação em quase todos os passos. Com coreografia, essa sequência ficaria distribuída entre os consumidores dos três serviços, e nenhum deles saberia informar em que passo uma OS se encontra. Como o OS Service já é o dono da OS e a Saga corresponde ao ciclo de vida dela, centralizar a coordenação nele evita duplicar esse conhecimento. Billing e Execution não se conhecem: apenas recebem comandos e publicam eventos.</p>
+
+<h2>4.1 Passos e compensações</h2>
+<p>O Quadro 4 lista os passos da Saga, o participante responsável por cada um e a ação de compensação executada quando um passo posterior falha. O enfileiramento do reparo é o passo pivô: a partir dele, a Saga apenas avança.</p>
+<div class="float">
+  <div class="cap">Quadro 4 – Passos da Saga e respectivas compensações</div>
+  <table>
+    <tr><th style="width:6%">Nº</th><th style="width:38%">Passo</th><th style="width:22%">Participante</th><th>Compensação</th></tr>
+    <tr><td class="c">1</td><td>Abrir a OS</td><td>OS (local)</td><td>OS passa a <code>CANCELADA</code></td></tr>
+    <tr><td class="c">2</td><td>Agendar e concluir o diagnóstico</td><td>Execution</td><td><code>execution.cancel-ticket</code></td></tr>
+    <tr><td class="c">3</td><td>Gerar o orçamento e enviá-lo por e-mail</td><td>Billing</td><td><code>billing.cancel-quote</code></td></tr>
+    <tr><td class="c">4</td><td>Decisão do cliente por item (prazo de 7 dias)</td><td>Billing → OS</td><td>—</td></tr>
+    <tr><td class="c">5</td><td>Cobrar por QR Code dinâmico (prazo de 48 h)</td><td>Billing + Mercado Pago</td><td><code>billing.refund-payment</code> (estorno real)</td></tr>
+    <tr><td class="c">6</td><td>Reservar os insumos</td><td>OS (local)</td><td>Libera a reserva</td></tr>
+    <tr><td class="c">7</td><td>Enfileirar o reparo na bancada (pivô)</td><td>Execution</td><td>— (a partir daqui a Saga só avança)</td></tr>
+    <tr><td class="c">8</td><td>Reparo iniciado, itens concluídos, OS <code>FINALIZADA</code></td><td>Execution → OS</td><td>—</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
+</div>
+
+<h2>4.2 Falhas tratadas</h2>
+<p class="noindent">A Saga trata as seguintes situações de falha:</p>
+<ol class="alin">
+  <li>caso A — o cliente reprova todos os itens ou não decide no prazo: a ficha da bancada é cancelada e a OS passa a <code>CANCELADA</code>;</li>
+  <li>caso B — o QR Code expira ou o pagamento falha: a order é cancelada no Mercado Pago, o orçamento é cancelado e, em seguida, a ficha da bancada;</li>
+  <li>caso C — a bancada recusa o reparo depois do pagamento: os insumos são liberados, o valor é <b>estornado no Mercado Pago</b> e a ficha é cancelada;</li>
+  <li>pagamento recebido durante ou depois da compensação: o Billing confirma o pagamento mesmo assim, e o orquestrador acrescenta o estorno à compensação;</li>
+  <li>participante sem resposta: o mesmo comando é reenviado, com o mesmo <code>message_id</code>, até o limite de tentativas; depois disso, inicia-se a compensação.</li>
+</ol>
+
+<h2>4.3 Persistência do estado da Saga</h2>
+<p class="noindent">O estado da Saga é mantido pelo OS Service da seguinte forma:</p>
+<ol class="alin">
+  <li>a tabela <code>saga_instances</code> registra o passo atual, os passos concluídos, as compensações pendentes, o prazo, as tentativas e o motivo da falha;</li>
+  <li>o controle de concorrência é otimista, pela coluna <code>version</code>; mensagens duplicadas, fora de ordem ou de outra Saga são descartadas e registradas em log;</li>
+  <li>o laço de verificação de prazos usa <code>FOR UPDATE SKIP LOCKED</code>, o que permite a várias réplicas dividir o trabalho;</li>
+  <li>o histórico da OS guarda a causa e o <code>message_id</code> de cada transição;</li>
+  <li>os logs <code>saga.*</code> e o trace, propagado nos atributos das mensagens, chegam ao Datadog.</li>
+</ol>
+
+<h2>4.4 Estados da ordem de serviço</h2>
+<p>A Figura 2 mostra os estados da OS e as transições para <code>CANCELADA</code> provocadas pelas compensações. O estado <code>AGUARDANDO_PAGAMENTO</code> foi introduzido nesta fase, e <code>APROVADO</code> passou a significar orçamento aprovado e pago.</p>
+<div class="float">
+<div class="cap">Figura 2 – Estados da ordem de serviço</div>
 <svg viewBox="0 0 800 120" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Estados da OS">
-  <style>.st{fill:#eef4fa;stroke:#0b5cad;stroke-width:1}.cx{fill:#fdecea;stroke:#b3261e;stroke-width:1}.l{font-size:8.8px;fill:#1d2327;font-family:Inter,Arial,sans-serif}.r{font-size:9.5px;fill:#b3261e;font-family:Inter,Arial,sans-serif}.k{stroke:#5b6670;stroke-width:1;fill:none}</style>
-  <defs><marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6670"/></marker></defs>
-  <rect class="st" x="4" y="14" width="64" height="26" rx="5"/><text class="l" x="36" y="31" text-anchor="middle">RECEBIDA</text>
-  <rect class="st" x="86" y="14" width="96" height="26" rx="5"/><text class="l" x="134" y="31" text-anchor="middle">EM_DIAGNOSTICO</text>
-  <rect class="st" x="200" y="14" width="134" height="26" rx="5"/><text class="l" x="267" y="31" text-anchor="middle">AGUARDANDO_APROVACAO</text>
-  <rect class="st" x="352" y="14" width="134" height="26" rx="5"/><text class="l" x="419" y="31" text-anchor="middle">AGUARDANDO_PAGAMENTO</text>
-  <rect class="st" x="504" y="14" width="64" height="26" rx="5"/><text class="l" x="536" y="31" text-anchor="middle">APROVADO</text>
-  <rect class="st" x="586" y="14" width="82" height="26" rx="5"/><text class="l" x="627" y="31" text-anchor="middle">EM_EXECUCAO</text>
-  <rect class="st" x="686" y="14" width="76" height="26" rx="5"/><text class="l" x="724" y="31" text-anchor="middle">FINALIZADA</text>
-  <rect class="st" x="700" y="78" width="76" height="26" rx="5"/><text class="l" x="738" y="95" text-anchor="middle">ENTREGUE</text>
-  <rect class="cx" x="300" y="78" width="80" height="26" rx="5"/><text class="l" x="340" y="95" text-anchor="middle">CANCELADA</text>
+  <style>.st{fill:#fff;stroke:#000;stroke-width:0.9}.cx{fill:#e6e6e6;stroke:#000;stroke-width:1.2}.l{font-size:9.6px;fill:#000}.r{font-size:10.5px;fill:#000;font-style:italic}.k{stroke:#000;stroke-width:0.9;fill:none}</style>
+  <defs><marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#000"/></marker></defs>
+  <rect class="st" x="4" y="14" width="64" height="26" rx="3"/><text class="l" x="36" y="31" text-anchor="middle">RECEBIDA</text>
+  <rect class="st" x="86" y="14" width="96" height="26" rx="3"/><text class="l" x="134" y="31" text-anchor="middle">EM_DIAGNOSTICO</text>
+  <rect class="st" x="200" y="14" width="134" height="26" rx="3"/><text class="l" x="267" y="31" text-anchor="middle">AGUARDANDO_APROVACAO</text>
+  <rect class="st" x="352" y="14" width="134" height="26" rx="3"/><text class="l" x="419" y="31" text-anchor="middle">AGUARDANDO_PAGAMENTO</text>
+  <rect class="st" x="504" y="14" width="64" height="26" rx="3"/><text class="l" x="536" y="31" text-anchor="middle">APROVADO</text>
+  <rect class="st" x="586" y="14" width="82" height="26" rx="3"/><text class="l" x="627" y="31" text-anchor="middle">EM_EXECUCAO</text>
+  <rect class="st" x="686" y="14" width="76" height="26" rx="3"/><text class="l" x="724" y="31" text-anchor="middle">FINALIZADA</text>
+  <rect class="st" x="700" y="78" width="76" height="26" rx="3"/><text class="l" x="738" y="95" text-anchor="middle">ENTREGUE</text>
+  <rect class="cx" x="300" y="78" width="80" height="26" rx="3"/><text class="l" x="340" y="95" text-anchor="middle">CANCELADA</text>
   <path class="k" d="M68 27 L86 27" marker-end="url(#c)"/>
   <path class="k" d="M182 27 L200 27" marker-end="url(#c)"/>
   <path class="k" d="M334 27 L352 27" marker-end="url(#c)"/>
@@ -236,42 +323,60 @@
   <path class="k" d="M267 40 L322 78" marker-end="url(#c)"/>
   <path class="k" d="M419 40 L360 78" marker-end="url(#c)"/>
   <path class="k" d="M536 40 L380 86" marker-end="url(#c)"/>
-  <text class="r" x="392" y="108">A, B, C e cancelamento do operador antes do pivô</text>
+  <text class="r" x="392" y="110">casos A, B e C e cancelamento pelo operador antes do pivô</text>
 </svg>
-<div class="caption">Estados da OS. <code>AGUARDANDO_PAGAMENTO</code> é novo na Fase 4; <code>APROVADO</code> passou a significar aprovado e pago.</div>
+<div class="src">Fonte: elaborado pelos autores (2026).</div>
 </div>
 
-<h2>5. Divisão dos microsserviços</h2>
-<p>O critério de corte foi <b>qual área da oficina é dona da decisão</b>: o atendimento decide o que entra na OS, o financeiro decide preço e cobrança, a produção decide a ordem do trabalho. Cada serviço tem repositório, Terraform (<code>infra/</code>), manifestos Kubernetes, pipeline e banco próprios.</p>
-<table>
-  <tr><th style="width:17%">Serviço</th><th style="width:43%">Responsabilidade</th><th>Banco e motivo</th></tr>
-  <tr><td><b>OS Service</b></td><td>Abertura da OS, itens com preço congelado, status e histórico, clientes, veículos, serviços, insumos e estoque, usuários; orquestrador da Saga.</td><td>PostgreSQL. Agregado relacional com integridade referencial; catálogos ficam aqui porque são lidos na abertura da OS e mudam pouco.</td></tr>
-  <tr><td><b>Billing</b></td><td>Orçamento enviado por e-mail, decisão do cliente por item, cobrança por QR Code no Mercado Pago, webhook assinado, estorno.</td><td>PostgreSQL. É dinheiro: unicidade de pagamento aprovado por orçamento, transação entre tabelas e auditoria por SQL.</td></tr>
-  <tr><td><b>Execution</b></td><td>Fila da bancada por filial, diagnóstico, execução item a item, disponibilidade da bancada, conclusão.</td><td>DynamoDB (NoSQL). Uma ficha por OS sempre lida inteira pela chave, fila por filial num índice secundário, custo zero parado.</td></tr>
-  <tr><td>Auth (Lambda)</td><td>Login e cadastro; emite o JWT.</td><td>Sem banco próprio: valida credenciais pela rota interna do OS Service.</td></tr>
-</table>
+<h1>5 Divisão dos microsserviços</h1>
+<p>O critério de decomposição foi <b>a área da oficina que é dona de cada decisão</b>: o atendimento decide o que entra na OS, o financeiro decide preço e cobrança, e a produção decide a ordem do trabalho na bancada. Cada serviço possui repositório, Terraform (pasta <code>infra/</code>), manifestos Kubernetes, pipeline e banco de dados próprios. O Quadro 5 detalha as responsabilidades e a escolha de banco de cada serviço.</p>
+<div class="float">
+  <div class="cap">Quadro 5 – Responsabilidades e bancos de dados dos serviços</div>
+  <table>
+    <tr><th style="width:17%">Serviço</th><th style="width:42%">Responsabilidade</th><th>Banco de dados e justificativa</th></tr>
+    <tr><td>OS Service</td><td>Abertura da OS, itens com preço congelado, status e histórico, clientes, veículos, serviços, insumos e estoque, usuários; orquestrador da Saga.</td><td>PostgreSQL. Agregado relacional com integridade referencial; os catálogos permanecem aqui porque são lidos na abertura da OS e mudam pouco.</td></tr>
+    <tr><td>Billing Service</td><td>Orçamento enviado por e-mail, decisão do cliente por item, cobrança por QR Code no Mercado Pago, webhook assinado e estorno.</td><td>PostgreSQL. Por lidar com dinheiro, exige unicidade de pagamento aprovado por orçamento, transação entre tabelas e auditoria por SQL.</td></tr>
+    <tr><td>Execution Service</td><td>Fila da bancada por filial, diagnóstico, execução item a item, disponibilidade da bancada e conclusão.</td><td>DynamoDB (NoSQL). Uma ficha por OS, sempre lida inteira pela chave; fila por filial em índice secundário; custo nulo quando ocioso.</td></tr>
+    <tr><td>Autenticação (Lambda)</td><td>Login e cadastro; emissão do JWT.</td><td>Sem banco próprio: valida as credenciais pela rota interna do OS Service.</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
+</div>
 
-<h3>Tecnologias e por quê</h3>
-<table>
-  <tr><th style="width:26%">Tecnologia</th><th>Uso e justificativa</th></tr>
-  <tr><td>Go 1.26, Fiber v3, pgx</td><td>Mesma base da Fase 3 nos três serviços; binário estático em imagem pequena, cold start curto na Lambda.</td></tr>
-  <tr><td>SNS FIFO + SQS FIFO</td><td>Ordem por OS e deduplicação nativas, DLQ, sem broker para operar. O tópico permite que novos consumidores assinem eventos sem mudar o produtor.</td></tr>
-  <tr><td>Mercado Pago (Orders API)</td><td>QR Code dinâmico pago pelo app; webhook validado por HMAC (<code>x-signature</code>); cancelamento e estorno pela mesma API.</td></tr>
-  <tr><td>AWS EKS, ALB, API Gateway, CloudFront</td><td>Uma porta pública (CloudFront → API Gateway); ALB interno roteia por prefixo para cada serviço; IRSA dá a cada pod só as permissões do seu serviço.</td></tr>
-  <tr><td>Terraform + GitHub Actions</td><td>Plataforma compartilhada no <code>-infrastructure</code>, recursos de cada serviço no próprio repositório, contrato entre eles via SSM, roles de deploy por OIDC e sem chave de acesso.</td></tr>
-  <tr><td>SonarQube, godog (BDD)</td><td>Quality Gate com cobertura ≥ 80% em cada PR; fluxo completo da OS e as compensações descritos em Gherkin e executados contra os serviços reais.</td></tr>
-  <tr><td>Datadog</td><td>Logs estruturados com correlação, APM com o trace atravessando as mensagens, painéis operacional, de negócio e da Saga, e monitores.</td></tr>
-</table>
+<h1>6 Tecnologias adotadas</h1>
+<p>O Quadro 6 relaciona as tecnologias empregadas na solução e a justificativa de cada escolha.</p>
+<div class="float">
+  <div class="cap">Quadro 6 – Tecnologias e justificativas</div>
+  <table>
+    <tr><th style="width:26%">Tecnologia</th><th>Uso e justificativa</th></tr>
+    <tr><td>Go 1.26, Fiber v3 e pgx</td><td>Mesma base da Fase 3 nos três serviços; binário estático em imagem pequena e inicialização rápida na Lambda.</td></tr>
+    <tr><td>SNS FIFO e SQS FIFO</td><td>Ordem por OS e deduplicação nativas, DLQ e nenhum broker para operar. O tópico permite que novos consumidores assinem os eventos sem alterar o produtor.</td></tr>
+    <tr><td>Mercado Pago (Orders API)</td><td>QR Code dinâmico pago pelo aplicativo; webhook validado por HMAC (<code>x-signature</code>); cancelamento e estorno pela mesma API.</td></tr>
+    <tr><td>AWS EKS, ALB, API Gateway e CloudFront</td><td>Uma única porta pública (CloudFront → API Gateway); ALB interno roteia por prefixo para cada serviço; IRSA concede a cada pod apenas as permissões do seu serviço, limitadas por uma permissions boundary.</td></tr>
+    <tr><td>Terraform e GitHub Actions</td><td>Plataforma compartilhada no repositório <code>-infrastructure</code>, recursos de cada serviço no próprio repositório, contrato entre eles via SSM Parameter Store e roles de deploy por OIDC, sem chaves de acesso.</td></tr>
+    <tr><td>SonarQube e godog (BDD)</td><td>Quality Gate com cobertura mínima de 80% em cada pull request; fluxo completo da OS e compensações descritos em Gherkin e executados contra os serviços reais.</td></tr>
+    <tr><td>Datadog</td><td>Logs estruturados com correlação, APM com o trace atravessando as mensagens, painéis operacional, de negócio e da Saga, e monitores.</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
+</div>
 
-<h2>6. Qualidade e validação</h2>
-<table>
-  <tr><th>Repositório</th><th>Cobertura</th><th>Pipeline</th></tr>
-  <tr><td>os-service</td><td>83,3%</td><td>lint, testes com Postgres real, BDD (4 cenários), SonarQube, deploy no EKS</td></tr>
-  <tr><td>billing-service</td><td>95,3%</td><td>lint, testes com Postgres real, SonarQube, deploy no EKS</td></tr>
-  <tr><td>execution-service</td><td>95,9%</td><td>lint, testes com LocalStack, SonarQube, deploy no EKS</td></tr>
-  <tr><td>serverless</td><td>92,4%</td><td>lint, testes, SonarQube, deploy da Lambda</td></tr>
-</table>
-<p><code>main</code> e <code>hml</code> são protegidas: merge só por PR com <code>lint</code>, <code>test</code> e <code>quality</code> verdes. Em 15/11/2026 o ambiente de homologação foi criado pelo <code>bring-up</code>, validado e destruído pelo <code>tear-down</code>. Foram validados: o login, o caminho feliz até <code>ENTREGUE</code> com pagamento real por QR Code no app do comprador de teste, o caso A, o caso C com estorno real no Mercado Pago e o webhook recusando assinatura inválida.</p>
+<h1>7 Qualidade e validação</h1>
+<p>As branches <code>main</code> e <code>hml</code> de todos os repositórios são protegidas: o merge só ocorre por pull request com as verificações <code>lint</code>, <code>test</code> e <code>quality</code> aprovadas. O Quadro 7 apresenta a cobertura de testes e as etapas do pipeline de cada repositório.</p>
+<div class="float">
+  <div class="cap">Quadro 7 – Cobertura de testes e pipeline por repositório</div>
+  <table>
+    <tr><th style="width:24%">Repositório</th><th style="width:14%">Cobertura</th><th>Etapas do pipeline</th></tr>
+    <tr><td>os-service</td><td class="c">83,3%</td><td>Lint, testes com PostgreSQL real, BDD (4 cenários), SonarQube e deploy no EKS</td></tr>
+    <tr><td>billing-service</td><td class="c">95,3%</td><td>Lint, testes com PostgreSQL real, SonarQube e deploy no EKS</td></tr>
+    <tr><td>execution-service</td><td class="c">95,9%</td><td>Lint, testes com LocalStack, SonarQube e deploy no EKS</td></tr>
+    <tr><td>serverless</td><td class="c">92,4%</td><td>Lint, testes, SonarQube e deploy da Lambda</td></tr>
+  </table>
+  <div class="src">Fonte: elaborado pelos autores (2026).</div>
+</div>
+<p>Em 15/11/2026, o ambiente de homologação foi criado pelo pipeline <code>bring-up</code>, validado e, em seguida, destruído pelo pipeline <code>tear-down</code>. Foram validados o login, o caminho feliz até o estado <code>ENTREGUE</code> com pagamento real por QR Code no aplicativo do comprador de teste, o caso A, o caso C com estorno real no Mercado Pago e a recusa de webhook com assinatura inválida.</p>
+
+<h1>8 Considerações finais</h1>
+<p>A decomposição por área de decisão resultou em três serviços com fronteiras claras e bancos de dados adequados a cada domínio, sendo dois relacionais e um NoSQL. A Saga orquestrada concentra no OS Service o conhecimento sobre o ciclo de vida da ordem de serviço, enquanto a mensageria FIFO com outbox transacional e consumidores idempotentes garante a consistência eventual entre os serviços, inclusive nos cenários de falha com estorno real do pagamento.</p>
+<p>A automação de infraestrutura e de deploy, aliada às verificações obrigatórias de qualidade e aos testes BDD de ponta a ponta, permitiu criar, validar e destruir o ambiente completo na AWS de forma reproduzível.</p>
 
 </body>
 </html>
