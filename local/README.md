@@ -52,7 +52,7 @@ docker compose -f local/docker-compose.local.yml down -v
 | Swagger do Execution | http://localhost:8080/api/execution/swagger |
 | Login e cadastro (Lambda) | `POST http://localhost:8080/api/auth/login`, `POST .../api/auth/register` |
 | MailHog (e-mails de orçamento, pagamento e status) | http://localhost:8025 |
-| Mercado Pago falso | http://localhost:8095 (`/__health`, `/checkout/{id}`) |
+| Mercado Pago falso | http://localhost:8095 (`/__health`, `/__orders/{id}`) |
 | LocalStack | http://localhost:4580 |
 
 Só essas quatro portas são publicadas (8080, 8025, 8095 e 4580). Os bancos e
@@ -106,8 +106,8 @@ aws --endpoint-url http://localhost:4580 sqs receive-message \
 | `INTERNAL_SERVICE_TOKEN` | `local-internal-token` | Lambda envia em `X-Service-Token`; OS Service confere |
 | `MERCADOPAGO_WEBHOOK_SECRET` | `local-webhook-secret` | mpfake assina o webhook; Billing valida |
 | `MERCADOPAGO_BASE_URL` | `http://mpfake:8095` | Billing |
-| `MERCADOPAGO_NOTIFICATION_URL` | `http://billing:8080/billing/webhooks/mercadopago` | o fake chama de dentro da rede do compose |
-| `MPFAKE_PUBLIC_URL` | `http://localhost:8095` | link de pagamento aberto no navegador do host |
+| `MPFAKE_WEBHOOK_URL` | `http://billing:8080/billing/webhooks/mercadopago` | para onde o fake envia o webhook da order (no Mercado Pago real, a URL fica no painel) |
+| `MERCADOPAGO_POS_EXTERNAL_ID` | `OFICINAMATRIZPOS01` | caixa onde as orders QR sao criadas (Billing e fake) |
 | `APP_BASE_URL` | `http://localhost:8080/api` | links enviados por e-mail |
 
 Os prazos da Saga aceitam sobrescrita pelo ambiente, para demonstrar
@@ -132,21 +132,23 @@ SAGA_APPROVAL_TIMEOUT=2m SAGA_PAYMENT_TIMEOUT=2m PAYMENT_EXPIRATION=2m \
    Billing gera o orçamento e manda o e-mail.
 4. No MailHog, abra o e-mail do orçamento e clique em aprovar (os links vão para
    `http://localhost:8080/api/billing/public/quotes/...`).
-5. O Billing cria a preferência no mpfake e manda o e-mail de pagamento. O link
-   também aparece em `payment_url` na consulta pública da OS
-   (`GET /api/public/work-orders/{code}?document=<CPF>`) e em
+5. O Billing cria uma order de QR Code dinâmico no mpfake e manda o e-mail com
+   o link da página do QR (`/api/billing/public/payments/{id}/qr`). A mesma
+   página aparece como `payment_url` na consulta pública da OS e no detalhe da
+   OS do painel, com a imagem e o "copia e cola". O id da order (`ORDTST...`)
+   está em `payments[].provider_order_id` de
    `GET /api/billing/quotes/by-work-order/{id}`.
-6. Pague: abra o link (`http://localhost:8095/checkout/{preferenceId}`) e clique
-   em **Pagar** ou **Recusar**. Sem navegador:
+6. Pague: abra `http://localhost:8095/__orders/{orderId}` e clique em
+   **Pagar** ou **Expirar**. Sem navegador:
 
    ```bash
-   curl -X POST "http://localhost:8095/checkout/<preferenceId>/pay?status=approved"
-   curl -X POST "http://localhost:8095/checkout/<preferenceId>/pay?status=rejected"
+   curl -X POST "http://localhost:8095/__orders/<orderId>/pay"
+   curl -X POST "http://localhost:8095/__orders/<orderId>/expire"
    ```
 
-   O fake cria o pagamento e chama o webhook do Billing com `x-signature`
-   assinado; o Billing consulta `GET /v1/payments/{id}` no fake e publica
-   `billing.payment-confirmed` (ou `payment-failed`).
+   O fake muda o status da order e chama o webhook do Billing (`type=order`)
+   com `x-signature` assinado; o Billing consulta `GET /v1/orders/{id}` no fake
+   e publica `billing.payment-confirmed` (ou `payment-failed` com `EXPIRADO`).
 7. Com o pagamento confirmado o reparo entra na fila. Inicie e finalize cada
    item pelo Execution; ao finalizar o último, a OS fica `FINALIZADA`.
    Acompanhe por `GET /api/work-orders/{id}/history` e

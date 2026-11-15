@@ -143,7 +143,8 @@ services:
       - "8095:8095"
     environment:
       PORT: "8095"
-      MPFAKE_PUBLIC_URL: http://localhost:8095
+      MPFAKE_WEBHOOK_URL: http://billing:8080/billing/webhooks/mercadopago
+      MERCADOPAGO_POS_EXTERNAL_ID: OFICINAMATRIZPOS01
       MERCADOPAGO_WEBHOOK_SECRET: local-webhook-secret
 
   os-migrate:
@@ -201,7 +202,7 @@ services:
       MERCADOPAGO_BASE_URL: http://mpfake:8095
       MERCADOPAGO_ACCESS_TOKEN: TEST-local-access-token
       MERCADOPAGO_WEBHOOK_SECRET: local-webhook-secret
-      MERCADOPAGO_NOTIFICATION_URL: http://billing:8080/billing/webhooks/mercadopago
+      MERCADOPAGO_POS_EXTERNAL_ID: OFICINAMATRIZPOS01
       PAYMENT_EXPIRATION: ${PAYMENT_EXPIRATION:-48h}
       DD_SERVICE: billing-service
     depends_on:
