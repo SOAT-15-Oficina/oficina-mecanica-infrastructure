@@ -65,16 +65,26 @@ data "aws_iam_policy_document" "service_deploy" {
   }
 
   statement {
+    sid       = "BoundedServiceRole"
+    actions   = ["iam:CreateRole", "iam:PutRolePolicy", "iam:PutRolePermissionsBoundary"]
+    resources = ["arn:aws:iam::${local.account_id}:role/oficina-${each.value.environment}-${each.value.short}*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.service_boundary[each.value.environment].arn]
+    }
+  }
+
+  statement {
     sid = "ServiceRole"
     actions = [
-      "iam:CreateRole",
       "iam:DeleteRole",
       "iam:GetRole",
       "iam:UpdateRole",
       "iam:UpdateAssumeRolePolicy",
       "iam:TagRole",
       "iam:UntagRole",
-      "iam:PutRolePolicy",
       "iam:GetRolePolicy",
       "iam:DeleteRolePolicy",
       "iam:ListRolePolicies",
@@ -127,8 +137,23 @@ data "aws_iam_policy_document" "service_deploy" {
     for_each = each.value.database ? [1] : []
 
     content {
-      sid       = "Database"
-      actions   = ["rds:*"]
+      sid     = "Database"
+      actions = ["rds:*"]
+      resources = [
+        "arn:aws:rds:${local.arn_infix}:db:oficina-${each.value.environment}-${each.value.short}",
+        "arn:aws:rds:${local.arn_infix}:subgrp:oficina-${each.value.environment}-${each.value.short}",
+        "arn:aws:rds:${local.arn_infix}:pg:default.*",
+        "arn:aws:rds:${local.arn_infix}:og:default:*",
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = each.value.database ? [1] : []
+
+    content {
+      sid       = "DatabaseRead"
+      actions   = ["rds:Describe*", "rds:ListTagsForResource"]
       resources = ["*"]
     }
   }
