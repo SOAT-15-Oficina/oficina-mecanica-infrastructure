@@ -18,13 +18,13 @@ flowchart TB
         MP[Mercado Pago<br/>Checkout Pro]
     end
 
-    subgraph edge [Borda: plataforma, camada persistente]
+    subgraph edge [Borda: plataforma]
         CF[CloudFront<br/>Function remove o prefixo /api]
         S3[(S3 privado<br/>painel web)]
         GW[API Gateway HTTP API<br/>única porta pública]
     end
 
-    subgraph vpc [VPC: plataforma, camada efêmera]
+    subgraph vpc [VPC: plataforma]
         direction TB
         LINK[VPC Link]
         ALB[ALB interno<br/>listener :80, padrão 404]
@@ -97,8 +97,8 @@ flowchart TB
 
 | Componente | Repositório dono | Artefato |
 |---|---|---|
-| CloudFront, S3, API Gateway e stage, Secrets Manager do JWT e do token de serviço, SSM estável, SES, IAM/OIDC dos pipelines, painéis e monitores do Datadog | `oficina-mecanica-infrastructure` (`persistent/`) | recursos AWS |
-| VPC, NAT, EKS, namespace, ALB interno e listener, ALB Controller, Metrics Server, agente Datadog, Lambda (a função), VPC Link, rotas do API Gateway | `oficina-mecanica-infrastructure` (`ephemeral/`) | recursos AWS e Kubernetes |
+| Bucket de state, tabela de lock, roles OIDC dos pipelines | `oficina-mecanica-infrastructure` (`bootstrap/`) | recursos AWS |
+| CloudFront, S3, API Gateway, Secrets Manager do JWT e do token de serviço, SSM, configuration set do SES, Datadog, VPC, NAT, EKS, namespace, ALB interno e listener, ALB Controller, Metrics Server, Lambda (a função) | `oficina-mecanica-infrastructure` (`platform/`) | recursos AWS e Kubernetes |
 | RDS do OS, `os-inbox` e assinaturas nos tópicos, role IRSA, ECR, regra `/*`, Deployment e afins | `oficina-mecanica-os-service` (`infra/`, `k8s/`) | imagem no ECR próprio |
 | RDS do Billing, `billing-inbox`, `billing-events`, role IRSA, ECR, regra `/billing/*`, Deployment e afins | `oficina-mecanica-billing-service` | imagem no ECR próprio |
 | Tabela DynamoDB, `execution-inbox`, `execution-events`, role IRSA, ECR, regra `/execution/*`, Deployment e afins | `oficina-mecanica-execution-service` | imagem no ECR próprio |

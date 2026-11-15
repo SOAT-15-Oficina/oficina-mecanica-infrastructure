@@ -48,7 +48,7 @@ sequenceDiagram
 Consultas de acompanhamento pelo operador: `GET /api/work-orders/{id}/history`
 (transições com causa e `message_id`) e `GET /api/work-orders/{id}/saga` (passo
 atual, prazo, tentativas e compensações pendentes). O painel "Saga" do Datadog
-(`persistent/datadog_dashboard_saga.tf`) mostra o mesmo de forma agregada.
+(`platform/datadog_dashboard_saga.tf`) mostra o mesmo de forma agregada.
 
 Para percorrer o fluxo localmente, incluindo o pagamento pelo Mercado Pago
 falso, veja [`local/README.md`](../../local/README.md).
