@@ -1,16 +1,5 @@
 name: Bring up
 
-# Sobe a camada efemera de UM ambiente e dispara o deploy dos tres repositorios
-# de aplicacao nele. Manual: os ambientes sobem sob demanda, nao
-# permanentemente.
-#
-# Duracao tipica: ~25-30 min do zero ate o ambiente atender requisicoes (EKS
-# ~15min e RDS ~10min em paralelo, mais os tres deploys, migration e seed).
-#
-# Homologacao e producao sao stacks independentes na MESMA conta: prefixo de
-# nome distinto, state distinto, roles distintas. O que decide qual delas sobe e
-# o input `environment` -- e a branch de onde este workflow foi disparado
-# precisa ser a do ambiente, senao o codigo aplicado nao e o que foi promovido.
 on:
   workflow_dispatch:
     inputs:
@@ -96,7 +85,7 @@ jobs:
           [ -n "$SENDER" ] || missing="$missing TF_VAR_SES_SENDER_EMAIL"
           if [ -n "$missing" ]; then
             echo "Variables ausentes no repositorio:$missing"
-            echo "Aplicar sem elas destruiria as identidades SES verificadas."
+            echo "Sem o remetente os servicos sobem sem conseguir enviar e-mail."
             exit 1
           fi
 
@@ -115,19 +104,18 @@ jobs:
           [ -n "$DD_APP_KEY" ] || missing="$missing DATADOG_APP_KEY"
           if [ -n "$missing" ]; then
             echo "Secrets ausentes no GitHub Environment:$missing"
-            echo "Cadastre-os, ou desligue o Datadog neste ambiente com a"
-            echo "variable TF_VAR_DATADOG_ENABLED=false (ciente de que isso"
-            echo "destroi os paineis e monitores ja criados)."
+            echo "Cadastre-os, ou desligue o Datadog com TF_VAR_DATADOG_ENABLED=false."
+            exit 1
+          fi
+          placeholder=""
+          case "$DD_API_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_API_KEY" ;; esac
+          case "$DD_APP_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_APP_KEY" ;; esac
+          if [ -n "$placeholder" ]; then
+            echo "Secrets ainda com o valor de espera:$placeholder"
             exit 1
           fi
 
-      # A camada persistente precisa existir antes: a efemera le o contrato de
-      # SSM que ela publica.
-      #
-      # Em cada camada, o -backend-config escolhe o STATE do ambiente e o
-      # TF_VAR_environment escolhe o que sera escrito nele. Os dois saem do mesmo
-      # $ENVIRONMENT -- e o que impede aplicar um ambiente sobre o state do outro.
-      - name: Apply persistent layer
+      - name: Apply platform
         env:
           TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
           TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
@@ -137,22 +125,9 @@ jobs:
           TF_VAR_datadog_site: ${{ vars.TF_VAR_DATADOG_SITE || 'datadoghq.com' }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
-          terraform -chdir=persistent init -input=false \
+          terraform -chdir=platform init -input=false \
             -backend-config="${ENVIRONMENT}.s3.tfbackend"
-          terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=10m
-
-      # As chaves do Datadog aqui sao do teste sintetico, que vive nesta camada
-      # (ephemeral/datadog_synthetics.tf). O agente no cluster nao as usa: le a
-      # API key do Secrets Manager.
-      - name: Apply ephemeral layer
-        env:
-          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
-          TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
-        run: |
-          export TF_VAR_environment="$ENVIRONMENT"
-          terraform -chdir=ephemeral init -input=false \
-            -backend-config="${ENVIRONMENT}.s3.tfbackend"
-          terraform -chdir=ephemeral apply -input=false -auto-approve -lock-timeout=30m
+          terraform -chdir=platform apply -input=false -auto-approve -lock-timeout=30m
 
       - name: Export outputs
         id: outputs
@@ -160,23 +135,22 @@ jobs:
           BASE_URL="$(aws ssm get-parameter --name "${SSM_PREFIX}/public_base_url" --query Parameter.Value --output text)"
 
           {
-            echo "cluster=$(terraform -chdir=ephemeral output -raw eks_cluster_name)"
+            echo "cluster=$(terraform -chdir=platform output -raw eks_cluster_name)"
             echo "namespace=$(aws ssm get-parameter --name "${SSM_PREFIX}/kube_namespace" --query Parameter.Value --output text)"
             echo "base_url=$BASE_URL"
           } >> "$GITHUB_OUTPUT"
 
-          # A URL era impressa pelo job `verify`, que saiu daqui. Quem dispara um
-          # bring-up ainda precisa saber onde o ambiente ficou.
           {
             echo "### Ambiente \`$ENVIRONMENT\`"
             echo
             echo "- Painel: ${BASE_URL%/api}"
             echo "- API: $BASE_URL"
             echo "- Healthcheck: \`$BASE_URL/ping\`"
+            echo "- Webhook do Mercado Pago: \`$BASE_URL/billing/webhooks/mercadopago\`"
             echo
+            echo "O dominio do CloudFront muda a cada bring-up: cadastre o webhook acima"
+            echo "no painel do Mercado Pago antes de testar pagamento."
             echo "O 200 em \`/api/ping\` so aparece depois do deploy do -os-service."
-            echo "A disponibilidade continua sendo acompanhada pelo teste sintetico"
-            echo "do Datadog (ephemeral/datadog_synthetics.tf), que checa a cada 5 min."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Cada repositorio de aplicacao e dono do proprio deploy. O bring-up apenas

@@ -1,14 +1,5 @@
 name: Terraform
 
-# Dois ambientes, uma regra: a BRANCH escolhe o destino.
-#
-#   hml  -> homologacao (/oficina-mecanica/homolog, GitHub Environment homolog)
-#   main -> producao    (/oficina-mecanica/prod,    GitHub Environment production)
-#
-# Nao ha nada aqui que mande em qual ambiente aplicar: o par branch->ambiente e
-# a unica fonte, e a trust policy do OIDC (persistent/oidc.tf) o repete do lado
-# da AWS. Um push em `hml` nao consegue credencial de producao nem se o job
-# pedir o ambiente errado.
 on:
   pull_request:
     branches: [main, hml]
@@ -23,20 +14,17 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   TF_VERSION: "1.9.5"
-  AWS_REGION: sa-east-1
 
 jobs:
-  # fmt, validate e tflint rodam nas tres camadas, em paralelo.
   validate:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        layer: [bootstrap, persistent, ephemeral]
+        layer: [bootstrap, platform]
     steps:
       - uses: actions/checkout@v4
 
@@ -63,122 +51,3 @@ jobs:
         run: |
           tflint --init
           tflint --chdir=${{ matrix.layer }} --format compact
-
-  # O plan comenta no PR para o diff de infraestrutura ser revisado ANTES de
-  # existir. Nao aplica nada.
-  # Nao existe job de `plan` em PR. Todo passo dele precisaria de credencial AWS
-  # (o `init` usa backend S3 e o `plan` fala com a API), e a unica role deste
-  # repositorio tem AdministratorAccess numa conta que hospeda outro projeto em
-  # producao. Liberar `pull_request` na trust policy dela significaria que
-  # qualquer PR executa workflow com admin na conta -- decisao do time foi nao
-  # liberar.
-  #
-  # O que sobra em PR e o job `validate` (fmt, validate e tflint nas tres
-  # camadas), que roda sem nenhuma credencial. Para ter plan em PR de novo, o
-  # caminho e uma segunda role so-leitura, confiando em
-  # `repo:<org>/<repo>:pull_request`, e nao afrouxar a role de admin.
-
-  # Apply so em merge para main, e apenas na camada PERSISTENTE. A camada
-  # efemera e aplicada pelo workflow bring-up, sob demanda.
-  apply-persistent:
-    if: github.event_name == 'push'
-    needs: [validate]
-    runs-on: ubuntu-latest
-    # `hml` e a unica branch que nao e producao entre os gatilhos de push acima,
-    # entao o fallback e seguro.
-    environment: ${{ github.ref_name == 'hml' && 'homolog' || 'production' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # Traduz a branch para o nome do ambiente usado pelo Terraform, pelo SSM e
-      # pelos arquivos de backend. Um `case` explicito em vez de expressao: se
-      # alguem adicionar uma branch ao gatilho e esquecer deste mapa, o job para
-      # aqui em vez de aplicar no ambiente errado.
-      - name: Resolve target environment
-        run: |
-          case "$GITHUB_REF_NAME" in
-            main) ENVIRONMENT=prod ;;
-            hml)  ENVIRONMENT=homolog ;;
-            *)
-              echo "branch $GITHUB_REF_NAME nao mapeia para nenhum ambiente"
-              exit 1
-              ;;
-          esac
-          echo "ENVIRONMENT=$ENVIRONMENT" >> "$GITHUB_ENV"
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      # As entradas da camada persistente vivem em <ambiente>.tfvars, que e
-      # gitignored e nao existe no runner. Sem elas o Terraform usa os DEFAULTS -- e o
-      # default de ses_verified_emails e `[]`, o que esvazia o for_each e
-      # DESTROI as identidades SES ja verificadas. Por isso os valores chegam
-      # por TF_VAR_* e o job aborta antes do apply se faltarem.
-      - name: Check required inputs
-        env:
-          EMAILS: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
-          SENDER: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
-        run: |
-          missing=""
-          [ -n "$EMAILS" ] || missing="$missing TF_VAR_SES_VERIFIED_EMAILS"
-          [ -n "$SENDER" ] || missing="$missing TF_VAR_SES_SENDER_EMAIL"
-          if [ -n "$missing" ]; then
-            echo "Variables ausentes no repositorio:$missing"
-            echo "Aplicar sem elas destruiria as identidades SES verificadas."
-            exit 1
-          fi
-
-      - name: Check Datadog credentials
-        env:
-          DD_ENABLED: ${{ vars.TF_VAR_DATADOG_ENABLED }}
-          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          DD_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
-        run: |
-          if [ "${DD_ENABLED:-true}" = "false" ]; then
-            echo "Datadog desligado neste ambiente por TF_VAR_DATADOG_ENABLED=false."
-            exit 0
-          fi
-          missing=""
-          [ -n "$DD_API_KEY" ] || missing="$missing DATADOG_API_KEY"
-          [ -n "$DD_APP_KEY" ] || missing="$missing DATADOG_APP_KEY"
-          if [ -n "$missing" ]; then
-            echo "Secrets ausentes no GitHub Environment:$missing"
-            echo "Cadastre-os, ou desligue o Datadog neste ambiente com a"
-            echo "variable TF_VAR_DATADOG_ENABLED=false (ciente de que isso"
-            echo "destroi os paineis e monitores ja criados)."
-            exit 1
-          fi
-          placeholder=""
-          case "$DD_API_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_API_KEY" ;; esac
-          case "$DD_APP_KEY" in REPLACE_ME*) placeholder="$placeholder DATADOG_APP_KEY" ;; esac
-          if [ -n "$placeholder" ]; then
-            echo "Secrets ainda com o valor de espera:$placeholder"
-            echo "Crie a conta no Datadog e substitua o placeholder pela chave real:"
-            echo "  gh secret set DATADOG_API_KEY --repo \$GITHUB_REPOSITORY --env <ambiente> --body '<chave>'"
-            echo "A de API fica em Organization Settings > API Keys; a de aplicacao,"
-            echo "em Organization Settings > Application Keys. Sao coisas diferentes."
-            exit 1
-          fi
-
-      # O -backend-config escolhe o STATE do ambiente e o TF_VAR_environment
-      # escolhe o que sera escrito nele. Os dois vem do mesmo $ENVIRONMENT: e o
-      # que impede aplicar a configuracao de um ambiente sobre o state do outro.
-      - name: Apply
-        env:
-          TF_VAR_ses_verified_emails: ${{ vars.TF_VAR_SES_VERIFIED_EMAILS }}
-          TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
-          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
-          TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
-          TF_VAR_datadog_enabled: ${{ vars.TF_VAR_DATADOG_ENABLED || 'true' }}
-          TF_VAR_datadog_site: ${{ vars.TF_VAR_DATADOG_SITE || 'datadoghq.com' }}
-        run: |
-          export TF_VAR_environment="$ENVIRONMENT"
-          terraform -chdir=persistent init -input=false \
-            -backend-config="${ENVIRONMENT}.s3.tfbackend"
-          terraform -chdir=persistent apply -input=false -auto-approve -lock-timeout=5m
