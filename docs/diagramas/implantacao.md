@@ -20,7 +20,7 @@ flowchart LR
 
     subgraph iam [AWS IAM]
         OIDC[OIDC provider<br/>token.actions.githubusercontent.com]
-        RL["6 roles por ambiente<br/>oficina-mecanica-&lt;env&gt;-gha-&lt;repo&gt;"]
+        RL["bootstrap/: 6 roles por ambiente<br/>oficina-mecanica-&lt;env&gt;-gha-&lt;repo&gt;"]
     end
 
     subgraph runtime [AWS: ambiente]
@@ -56,22 +56,20 @@ flowchart LR
     gh -.assume.-> RL
 ```
 
-## As duas camadas de Terraform
+## Bootstrap e camada única de Terraform
 
-| Camada | Diretório | Custo | Conteúdo | Aplicação |
+| Diretório | Custo | Conteúdo | Aplicação | No tear-down |
 |---|---|---|---|---|
-| Bootstrap | `bootstrap/` | centavos | bucket de state, tabela de lock | à mão, uma vez por conta |
-| Persistente | `persistent/` | ~US$ 1/mês | OIDC e roles dos 6 repositórios, identidades SES, S3, CloudFront, API Gateway e stage, segredos do JWT e do token de serviço, parâmetros SSM estáveis, Datadog | automática, em push para `hml` ou `main` |
-| Efêmera | `ephemeral/` | ~US$ 0,30/h | VPC, NAT, EKS, namespace e RBAC dos pipelines, ALB interno e listener, add-ons do cluster, Lambda, VPC Link, rotas e integrações do gateway | manual, por `bring-up.yml` e `tear-down.yml` |
+| `bootstrap/` | centavos | bucket de state, tabela de lock e as 12 roles de deploy (6 repositórios × 2 ambientes) | à mão, state local versionado | fica |
+| `platform/` | ~US$ 0,30/h ligada, zero desligada | VPC, NAT, EKS, namespace e RBAC dos pipelines, ALB interno e listener, add-ons, Lambda, API Gateway com rotas e VPC Link, CloudFront e S3 do painel, segredos do JWT e do token de serviço, configuration set do SES, SSM, Datadog | `bring-up.yml` | destruída |
+| `infra/` de cada serviço | dois RDS e DynamoDB sob demanda | banco, filas e tópico, IRSA, ECR, segredo, target group e regra | `ci.yml` do serviço | `destroy.yml` do serviço |
 
-Os serviços têm um terceiro nível: o `infra/` de cada um, com state próprio em
-`<ambiente>/<repo>/terraform.tfstate` no mesmo bucket, aplicado pelo pipeline do
-serviço depois que a camada efêmera está no ar.
-
-O corte mais fino está no API Gateway: **o API e o stage são persistentes; as
-rotas, as integrações e o VPC Link são efêmeros**. Com o ambiente desligado, o
-domínio existe e responde 404, que é o comportamento esperado
-([ADR-0006](../adr/0006-duas-camadas-de-terraform.md)).
+O state de `platform/` fica em `<ambiente>/platform/terraform.tfstate` e o de
+cada serviço em `<ambiente>/<repo>/terraform.tfstate`, no mesmo bucket. A
+identidade SES do remetente fica fora do Terraform e é só lida, para não exigir
+nova verificação por e-mail a cada ciclo. Com o ambiente desligado não existe
+domínio público: o CloudFront nasce com um domínio novo a cada bring-up
+([ADR-0018](../adr/0018-camada-unica-de-terraform.md)).
 
 ## Branch decide ambiente
 
@@ -99,8 +97,8 @@ sequenceDiagram
 
     DEV->>GHA: bring-up.yml (manual, input environment)
     GHA->>GHA: aborta se o input não bate com a branch
-    GHA->>TF: apply da camada efêmera
-    TF->>AWS: VPC, NAT, EKS, ALB (listener 404), Lambda, VPC Link
+    GHA->>TF: apply de platform/
+    TF->>AWS: VPC, NAT, EKS, ALB (listener 404), Lambda, API Gateway,<br/>CloudFront, segredos, Datadog
     TF->>AWS: publica no SSM (inclui eks_oidc_provider_arn,<br/>eks_node_security_group_id, alb_listener_arn)
     GHA->>APP: billing-service e execution-service em paralelo
     APP->>AWS: infra/ (banco, inbox, tópico, regra de prefixo), imagem, kustomize
@@ -108,7 +106,7 @@ sequenceDiagram
     APP->>AWS: infra/ (RDS, os-inbox, assinaturas, regra /*), imagem, Job migrate, kustomize
     GHA->>APP: serverless e frontend
     APP->>AWS: zip da Lambda e s3 sync
-    GHA-->>DEV: URLs do painel e da API no resumo do run
+    GHA-->>DEV: URLs do painel, da API e do webhook do Mercado Pago no resumo do run
 ```
 
 Billing e Execution vão antes do OS Service porque o `infra/` do OS lê do SSM as
@@ -118,11 +116,31 @@ filas de entrada e os tópicos de eventos dos dois (`billing_inbox_queue_arn`,
 envio. Até o OS subir, a regra padrão do listener responde 404 e a Lambda não
 autentica, porque a tabela `users` mora no banco do OS.
 
-**Tear-down:** o `tear-down.yml` remove os `TargetGroupBinding` e destrói a
-camada efêmera. Os recursos que os serviços criaram dentro da VPC (RDS,
-security groups, target groups) precisam ser destruídos antes, pelo `infra/` de
-cada serviço; senão a VPC não sai. A checagem final procura instâncias RDS
-`oficina-<ambiente>-*` que tenham sobrado.
+**Tear-down:** o `tear-down.yml` dispara o `destroy.yml` do OS Service, que
+remove os objetos do `k8s/` (liberando o `TargetGroupBinding`) e destrói o
+`infra/` dele, inclusive as assinaturas da `os-inbox` nos tópicos dos outros
+dois; depois o de Billing e o de Execution em paralelo; e por fim destrói
+`platform/`. A checagem final procura VPC, Elastic IP, cluster, RDS, tabela
+DynamoDB, distribuição CloudFront e parâmetros SSM do ambiente que tenham
+sobrado.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor DEV as Mantenedor
+    participant GHA as tear-down.yml
+    participant OS as os-service destroy.yml
+    participant SV as billing e execution destroy.yml
+    participant TF as Terraform platform/
+
+    DEV->>GHA: manual, environment + "destroy"
+    GHA->>OS: dispara e aguarda
+    OS->>OS: kubectl delete do overlay, terraform destroy de infra/
+    GHA->>SV: dispara os dois e aguarda
+    SV->>SV: kubectl delete do overlay, terraform destroy de infra/
+    GHA->>TF: terraform destroy
+    GHA->>GHA: verifica que nada sobrou
+```
 
 ## O que cada pipeline faz
 
@@ -132,17 +150,19 @@ cada serviço; senão a VPC não sai. A checagem final procura instâncias RDS
 | `oficina-mecanica-serverless` | lê o nome da função no SSM, publica o zip com `update-function-code`, faz um `invoke` de fumaça |
 | `oficina-mecanica-frontend` | lê bucket e id da distribuição no SSM, `s3 sync`, invalidação do CloudFront |
 
-A role de deploy de cada serviço (`persistent/oidc_services.tf`) só alcança
+A role de deploy de cada serviço (`bootstrap/oidc_services.tf`) só alcança
 recursos com o nome do próprio serviço: o prefixo do state, o ECR
 `oficina-mecanica/<ambiente>/<repo>`, filas e tópicos `oficina-<ambiente>-<serviço>-*`,
 a role IRSA `oficina-<ambiente>-<serviço>*`, segredos e parâmetros SSM com o
 nome do serviço, o target group próprio e as regras do listener da plataforma.
 O acesso ao cluster vem de uma access entry por role, com `AmazonEKSEditPolicy`
-no namespace e um `Role` que libera `TargetGroupBinding`.
+no namespace e um `Role` que libera `TargetGroupBinding`. As mesmas permissões
+cobrem o `destroy.yml`: cada `Create*` da lista tem o `Delete*` correspondente.
 
 | Tempo ou custo | Valor |
 |---|---|
-| Do zero até um ambiente demonstrável | 30 a 40 minutos (dois RDS dos serviços em paralelo) |
-| Criar ou destruir a distribuição CloudFront | 15 a 25 minutos, e por isso ela é persistente |
+| Do zero até um ambiente demonstrável | 35 a 45 minutos (CloudFront e Forwarder do Datadog entram no ciclo) |
+| Destruir a distribuição CloudFront | 15 a 25 minutos (precisa ser desabilitada antes) |
+| Tear-down completo | 30 a 45 minutos |
 | Ambiente ligado | ~US$ 0,30/hora da plataforma, mais os dois RDS dos serviços |
-| Ambiente desligado | ~US$ 1/mês por ambiente |
+| Ambiente desligado | ~US$ 0 (só o bucket de state e a tabela de lock) |
