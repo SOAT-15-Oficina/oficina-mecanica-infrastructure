@@ -26,7 +26,7 @@ locals {
   }
 }
 
-# Bucket do state das camadas persistent e ephemeral.
+# Bucket do state de platform/ e do infra/ de cada servico.
 #
 # ATENCAO: o state contem material sensivel -- a senha do RDS e a chave JWT sao
 # materializadas em kubernetes_secret pelo Terraform (decisao 22). Por isso
