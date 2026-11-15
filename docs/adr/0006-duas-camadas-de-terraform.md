@@ -1,6 +1,6 @@
 # ADR-0006. Duas camadas de Terraform: persistente e efêmera
 
-**Aceita** · 2026-09-02
+**Substituída por [ADR-0018](./0018-camada-unica-de-terraform.md)** · 2026-09-02
 
 **Contexto.** O ambiente é sob demanda: sobe, é usado e desce. Um EKS, mais um
 NAT Gateway, mais um RDS ligados 24 horas por dia custam na ordem de US$ 200

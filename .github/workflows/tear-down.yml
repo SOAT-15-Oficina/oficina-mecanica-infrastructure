@@ -1,9 +1,5 @@
 name: Tear down
 
-# Destroi a camada efemera de UM ambiente. A persistente (state, roles, ECR,
-# identidades SES, S3, CloudFront, API Gateway, Secrets Manager) NAO e tocada --
-# custa ~US$1/mes por ambiente e evita reverificar e-mails no SES e trocar a URL
-# publica a cada ciclo.
 on:
   workflow_dispatch:
     inputs:
@@ -17,8 +13,6 @@ on:
         required: true
         type: string
 
-# Mesmo grupo do bring-up, por ambiente: subir e derrubar o MESMO ambiente nunca
-# correm juntos, mas mexer em homologacao nao segura producao na fila.
 concurrency:
   group: environment-lifecycle-${{ inputs.environment }}
   cancel-in-progress: false
@@ -34,17 +28,14 @@ env:
   SSM_PREFIX: /oficina-mecanica/${{ inputs.environment }}
 
 jobs:
-  destroy:
+  check:
     if: inputs.confirm == 'destroy'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
     steps:
-      - uses: actions/checkout@v4
-
-      # Mesma amarra do bring-up: o codigo que destroi um ambiente e o codigo
-      # promovido para ele. Destruir producao com o Terraform de `hml` poderia
-      # deixar para tras recursos que so existem no codigo de `main`.
       - name: Check ref matches environment
+        id: ref
         run: |
           case "$ENVIRONMENT" in
             prod)    expected=main ;;
@@ -56,6 +47,63 @@ jobs:
             echo "mas este run partiu de '$GITHUB_REF_NAME'."
             exit 1
           fi
+          echo "ref=$expected" >> "$GITHUB_OUTPUT"
+
+  destroy-services:
+    needs: [check]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+      ORG: SOAT-15-Oficina
+      REF: ${{ needs.check.outputs.ref }}
+    steps:
+      - name: Destroy services
+        run: |
+          echo "disparando destroy.yml em '$REF' para o ambiente '$ENVIRONMENT'"
+
+          dispatch() {
+            repo="$ORG/oficina-mecanica-$1"
+            before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run destroy.yml --repo "$repo" --ref "$REF" >&2
+            for _ in $(seq 1 30); do
+              id="$(gh api "repos/$repo/actions/workflows/destroy.yml/runs?event=workflow_dispatch&branch=$REF&per_page=10" \
+                --jq "[.workflow_runs[] | select(.created_at >= \"$before\")] | sort_by(.created_at) | last | .id // empty")"
+              if [ -n "$id" ]; then echo "$id"; return 0; fi
+              sleep 5
+            done
+            echo "nao encontrei o run disparado em $repo" >&2
+            return 1
+          }
+
+          await() {
+            repo="$ORG/oficina-mecanica-$1"; id="$2"
+            echo "aguardando https://github.com/$repo/actions/runs/$id"
+            for _ in $(seq 1 120); do
+              state="$(gh api "repos/$repo/actions/runs/$id" --jq '.status + " " + (.conclusion // "-")')"
+              case "$state" in
+                "completed success") echo "$1: ok"; return 0 ;;
+                completed*)          echo "$1: falhou ($state)" >&2; return 1 ;;
+              esac
+              sleep 15
+            done
+            echo "$1: timeout" >&2
+            return 1
+          }
+
+          os_id="$(dispatch os-service)"
+          await os-service "$os_id"
+
+          billing_id="$(dispatch billing-service)"
+          execution_id="$(dispatch execution-service)"
+          await billing-service "$billing_id"
+          await execution-service "$execution_id"
+
+  destroy-platform:
+    needs: [check, destroy-services]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -66,11 +114,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Como o ALB e recurso Terraform (e nao criado por um Ingress), o destroy
-      # remove tudo na ordem certa e nao deixa ENI orfa travando a delecao da
-      # subnet. Este passo so garante que o TargetGroupBinding saia antes do
-      # controller, para o controller conseguir desregistrar os targets.
-      - name: Detach target group binding first
+      - name: Detach remaining target group bindings
         continue-on-error: true
         run: |
           CLUSTER="$(aws ssm get-parameter --name "${SSM_PREFIX}/eks_cluster_name" \
@@ -82,49 +126,68 @@ jobs:
             kubectl -n "$NS" delete targetgroupbinding --all --ignore-not-found --timeout=120s
           fi
 
-      # O -backend-config escolhe o state do ambiente e o TF_VAR_environment o
-      # que o codigo descreve. Divergir os dois aqui e pior que num apply: o
-      # Terraform destruiria o que estivesse no state selecionado.
-      # Sem as chaves do Datadog o destroy nao consegue remover o teste sintetico
-      # desta camada, e ele ficaria orfao rodando contra um ambiente destruido --
-      # exatamente o que motivou move-lo para ca.
-      - name: Destroy ephemeral layer
+      - name: Empty Datadog forwarder bucket
+        run: |
+          STACK="oficina-mecanica-${ENVIRONMENT}-datadog-forwarder"
+          BUCKET="$(aws cloudformation describe-stack-resources --stack-name "$STACK" \
+            --query "StackResources[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId | [0]" \
+            --output text 2>/dev/null || true)"
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = None ]; then
+            echo "sem bucket do forwarder"
+            exit 0
+          fi
+          aws s3 rm "s3://${BUCKET}" --recursive --quiet
+          VERSIONS="$(aws s3api list-object-versions --bucket "$BUCKET" --output json \
+            --query '{Objects: [Versions[].{Key:Key,VersionId:VersionId}, DeleteMarkers[].{Key:Key,VersionId:VersionId}][]}')"
+          if [ "$(jq '.Objects | map(select(. != null)) | length' <<<"$VERSIONS")" -gt 0 ]; then
+            jq -c '{Objects: (.Objects | map(select(. != null))), Quiet: true}' <<<"$VERSIONS" > /tmp/versions.json
+            aws s3api delete-objects --bucket "$BUCKET" --delete file:///tmp/versions.json >/dev/null
+          fi
+          echo "bucket ${BUCKET} esvaziado"
+
+      - name: Destroy platform
         env:
+          TF_VAR_ses_verified_emails: "[]"
+          TF_VAR_ses_sender_email: ${{ vars.TF_VAR_SES_SENDER_EMAIL }}
           TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
           TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
+          TF_VAR_datadog_enabled: ${{ vars.TF_VAR_DATADOG_ENABLED || 'true' }}
+          TF_VAR_datadog_site: ${{ vars.TF_VAR_DATADOG_SITE || 'datadoghq.com' }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
-          terraform -chdir=ephemeral init -input=false \
+          terraform -chdir=platform init -input=false \
             -backend-config="${ENVIRONMENT}.s3.tfbackend"
-          terraform -chdir=ephemeral destroy -input=false -auto-approve -lock-timeout=30m
+          terraform -chdir=platform destroy -input=false -auto-approve -lock-timeout=30m
 
-      # Um destroy que "terminou" mas deixou ENI, ALB ou EIP para tras continua
-      # gerando custo em silencio.
-      #
-      # Todo filtro e por Environment, nao so por Project: com dois ambientes na
-      # mesma conta, contar "VPCs do projeto" acusaria as do ambiente que
-      # continua de pe e falharia todo tear-down.
       - name: Verify nothing was left behind
         run: |
           LEFTOVERS=0
+          check() {
+            if [ "$2" != "0" ]; then echo "$1 restantes: $2"; LEFTOVERS=1; fi
+          }
 
-          COUNT="$(aws ec2 describe-vpcs \
-            --filters "Name=tag:Project,Values=oficina-mecanica" \
-                      "Name=tag:Environment,Values=${ENVIRONMENT}" \
-                      "Name=tag:Layer,Values=ephemeral" \
+          check VPCs "$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Project,Values=oficina-mecanica" "Name=tag:Environment,Values=${ENVIRONMENT}" \
             --query 'length(Vpcs)' --output text)"
-          [ "$COUNT" = "0" ] || { echo "VPCs restantes: $COUNT"; LEFTOVERS=1; }
 
-          COUNT="$(aws ec2 describe-addresses \
-            --filters "Name=tag:Project,Values=oficina-mecanica" \
-                      "Name=tag:Environment,Values=${ENVIRONMENT}" \
+          check "Elastic IPs" "$(aws ec2 describe-addresses \
+            --filters "Name=tag:Project,Values=oficina-mecanica" "Name=tag:Environment,Values=${ENVIRONMENT}" \
             --query 'length(Addresses)' --output text)"
-          [ "$COUNT" = "0" ] || { echo "Elastic IPs restantes: $COUNT"; LEFTOVERS=1; }
 
-          # O identificador do RDS e `<project>-<environment>` (ephemeral/rds.tf).
-          COUNT="$(aws rds describe-db-instances \
-            --query "length(DBInstances[?DBInstanceIdentifier=='oficina-mecanica-${ENVIRONMENT}'])" --output text)"
-          [ "$COUNT" = "0" ] || { echo "Instancias RDS restantes: $COUNT"; LEFTOVERS=1; }
+          check "Clusters EKS" "$(aws eks list-clusters \
+            --query "length(clusters[?@ == 'oficina-mecanica-${ENVIRONMENT}'])" --output text)"
+
+          check "Instancias RDS" "$(aws rds describe-db-instances \
+            --query "length(DBInstances[?starts_with(DBInstanceIdentifier, 'oficina-${ENVIRONMENT}-')])" --output text)"
+
+          check "Tabelas DynamoDB" "$(aws dynamodb list-tables \
+            --query "length(TableNames[?starts_with(@, 'oficina-${ENVIRONMENT}-')])" --output text)"
+
+          check "Distribuicoes CloudFront" "$(aws cloudfront list-distributions \
+            --query "length(DistributionList.Items[?Comment == 'oficina-mecanica-${ENVIRONMENT} - painel + API'] || \`[]\`)" --output text)"
+
+          check "Parametros SSM" "$(aws ssm get-parameters-by-path --path "${SSM_PREFIX}/" \
+            --query 'length(Parameters)' --output text)"
 
           if [ "$LEFTOVERS" = "1" ]; then
             echo "Recursos orfaos continuam gerando custo -- limpe manualmente."
