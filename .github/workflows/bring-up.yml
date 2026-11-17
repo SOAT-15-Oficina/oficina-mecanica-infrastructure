@@ -123,6 +123,8 @@ jobs:
           TF_VAR_datadog_app_key: ${{ secrets.DATADOG_APP_KEY }}
           TF_VAR_datadog_enabled: ${{ vars.TF_VAR_DATADOG_ENABLED || 'true' }}
           TF_VAR_datadog_site: ${{ vars.TF_VAR_DATADOG_SITE || 'datadoghq.com' }}
+          TF_VAR_manage_datadog_logs_metrics: ${{ vars.TF_VAR_MANAGE_DATADOG_LOGS_METRICS || 'true' }}
+          TF_VAR_manage_datadog_aws_integration: ${{ vars.TF_VAR_MANAGE_DATADOG_AWS_INTEGRATION || 'true' }}
         run: |
           export TF_VAR_environment="$ENVIRONMENT"
           terraform -chdir=platform init -input=false \
