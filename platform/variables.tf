@@ -95,7 +95,12 @@ variable "manage_datadog_aws_integration" {
     Homologacao nao perde nada: as metricas da conta chegam com a tag `env` de
     cada recurso, entao os paineis dela filtram normalmente.
 
-    Default: `true` em prod, `false` nos demais.
+    Default: `true` em prod, `false` nos demais. O `bring-up` liga nos dois,
+    porque na pratica so um ambiente fica no ar por vez e, sem isso, quem
+    sobe so homologacao fica sem o recurso. Com os dois no ar ao mesmo tempo,
+    desligue no segundo pela variable de Environment
+    `TF_VAR_MANAGE_DATADOG_LOGS_METRICS` ou
+    `TF_VAR_MANAGE_DATADOG_AWS_INTEGRATION` = `false`.
   EOT
   type        = bool
   default     = null
@@ -114,7 +119,12 @@ variable "manage_datadog_logs_metrics" {
     ambientes e o `group_by` em `env` separa o dado. Todo painel consulta
     `{$env}`, entao cada ambiente ve so o proprio numero.
 
-    Default: `true` em prod, `false` nos demais.
+    Default: `true` em prod, `false` nos demais. O `bring-up` liga nos dois,
+    porque na pratica so um ambiente fica no ar por vez e, sem isso, quem
+    sobe so homologacao fica sem o recurso. Com os dois no ar ao mesmo tempo,
+    desligue no segundo pela variable de Environment
+    `TF_VAR_MANAGE_DATADOG_LOGS_METRICS` ou
+    `TF_VAR_MANAGE_DATADOG_AWS_INTEGRATION` = `false`.
   EOT
   type        = bool
   default     = null
